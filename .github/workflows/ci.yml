@@ -1,0 +1,29 @@
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  repository-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate project structure
+        run: |
+          test -d src/web
+          test -d src/mobile
+          test -d src/backend
+          test -d tests
+          test -d features
+          test -d docs/project
+          test -f README.md
+
+      - name: Repository validation passed
+        run: echo "GradTrack structure verified."

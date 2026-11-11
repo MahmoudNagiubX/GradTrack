@@ -1,0 +1,40 @@
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# React
+node_modules/
+dist/
+coverage/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins*
+.packages
+build/
+*.apk
+*.aab
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Local databases and logs
+*.sqlite3
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
