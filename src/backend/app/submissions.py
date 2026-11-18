@@ -28,6 +28,7 @@ from app.models import (
     Milestone,
     MilestoneSubmission,
     SubmissionVersion,
+    SupervisorReview,
     TeamMembership,
     User,
 )
@@ -249,6 +250,152 @@ def _create_initial_submission(
         ) from None
 
 
+def _create_revision(
+    access: SubmissionAccess,
+    *,
+    source_type: str,
+    url: str | None = None,
+    staged_upload: StagedUpload | None = None,
+) -> SubmissionVersionResponse:
+    """Append a new pending version after the latest version was returned."""
+    session = access.session
+    milestone = session.scalar(
+        select(Milestone)
+        .where(
+            Milestone.id == access.milestone.id,
+            Milestone.team_id == access.milestone.team_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if milestone is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Milestone not found",
+        )
+
+    parent = session.scalar(
+        select(MilestoneSubmission)
+        .where(MilestoneSubmission.milestone_id == milestone.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if parent is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="There is no returned submission to revise",
+        )
+
+    user = session.scalar(
+        select(User)
+        .where(User.id == access.current_user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    membership_id = session.scalar(
+        select(TeamMembership.id).where(
+            TeamMembership.team_id == milestone.team_id,
+            TeamMembership.user_id == user.id,
+        )
+    )
+    if user.system_role != "student" or membership_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Milestone not found",
+        )
+
+    latest, latest_review = session.execute(
+        select(SubmissionVersion, SupervisorReview)
+        .outerjoin(
+            SupervisorReview,
+            SupervisorReview.version_id == SubmissionVersion.id,
+        )
+        .where(SubmissionVersion.submission_id == parent.id)
+        .order_by(SubmissionVersion.version_number.desc())
+        .limit(1)
+    ).one_or_none() or (None, None)
+    if (
+        parent.review_status != "returned"
+        or latest is None
+        or latest_review is None
+        or latest_review.decision != "returned"
+    ):
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only a returned submission can be revised",
+        )
+
+    submitted_at = _now_utc()
+    deadline = _as_utc(milestone.due_at)
+    version = SubmissionVersion(
+        submission_id=parent.id,
+        version_number=latest.version_number + 1,
+        submitted_by=user.id,
+        submitted_at=submitted_at,
+        deadline_at_submission=deadline,
+        is_late=submitted_at > deadline,
+        source_type=source_type,
+        storage_key=staged_upload.storage_key if staged_upload else None,
+        original_filename=(staged_upload.original_filename if staged_upload else None),
+        file_size_bytes=staged_upload.file_size_bytes if staged_upload else None,
+        media_type=staged_upload.media_type if staged_upload else None,
+        url=url,
+    )
+    parent.review_status = "pending_review"
+    session.add(version)
+
+    try:
+        session.flush()
+        if staged_upload is not None:
+            staged_upload.promote()
+        session.commit()
+        if staged_upload is not None:
+            staged_upload.committed = True
+        return _serialize_version(version, "pending_review", milestone)
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Submission could not be revised",
+        ) from None
+    except SQLAlchemyError as error:
+        session.rollback()
+        logger.error(
+            "Submission revision persistence failed: exception=%s",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Submission could not be saved",
+        ) from None
+    except PrivateStorageUnavailable:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Private file storage is unavailable",
+        ) from None
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as error:
+        session.rollback()
+        logger.error(
+            "Submission revision processing failed: exception=%s",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Submission could not be saved",
+        ) from None
+
+
 def _serialize_version(
     version: SubmissionVersion,
     review_status: str,
@@ -277,17 +424,21 @@ def _get_version(
     access: SubmissionAccess, version_id: UUID
 ) -> tuple[SubmissionVersion, str] | None:
     result = access.session.execute(
-        select(SubmissionVersion, MilestoneSubmission.review_status)
+        select(SubmissionVersion, SupervisorReview.decision)
         .join(
             MilestoneSubmission,
             MilestoneSubmission.id == SubmissionVersion.submission_id,
+        )
+        .outerjoin(
+            SupervisorReview,
+            SupervisorReview.version_id == SubmissionVersion.id,
         )
         .where(
             MilestoneSubmission.milestone_id == access.milestone.id,
             SubmissionVersion.id == version_id,
         )
     ).first()
-    return (result[0], result[1]) if result is not None else None
+    return (result[0], result[1] or "pending_review") if result is not None else None
 
 
 @router.post(
@@ -437,14 +588,88 @@ def submit_file(
             staged.cleanup()
 
 
+@router.post(
+    "/revisions/link",
+    response_model=SubmissionVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        409: {"description": "Only a returned submission can be revised"},
+    },
+)
+def revise_link(
+    payload: LinkSubmissionRequest,
+    access: SubmissionWriter,
+) -> SubmissionVersionResponse:
+    """Append an HTTPS link revision after supervisor feedback."""
+    return _create_revision(access, source_type="link", url=payload.url)
+
+
+@router.post(
+    "/revisions/file",
+    response_model=SubmissionVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["file"],
+                        "properties": {"file": {"type": "string", "format": "binary"}},
+                    }
+                }
+            },
+        }
+    },
+    responses={
+        409: {"description": "Only a returned submission can be revised"},
+        413: {"description": "The upload exceeds the 20 MiB limit"},
+        422: {"description": "The file is invalid or unsupported"},
+        503: {"description": "Private storage is unavailable"},
+    },
+)
+def revise_file(
+    access: SubmissionWriter,
+    upload: FileUpload,
+) -> SubmissionVersionResponse:
+    """Stream, validate, and privately store a returned file revision."""
+    staged: StagedUpload | None = None
+    try:
+        staged = stage_upload(
+            upload.file,
+            filename=upload.filename,
+            content_type=upload.content_type,
+            configured_dir=Settings.from_environment().private_upload_dir,
+        )
+        return _create_revision(access, source_type="file", staged_upload=staged)
+    except FileValidationError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=str(error),
+        ) from None
+    except PrivateStorageUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Private file storage is unavailable",
+        ) from None
+    finally:
+        if staged is not None:
+            staged.cleanup()
+
+
 @router.get("", response_model=list[SubmissionVersionResponse])
 def list_submissions(access: SubmissionReader) -> list[SubmissionVersionResponse]:
     """List the team's immutable submission versions oldest to newest."""
     rows = access.session.execute(
-        select(SubmissionVersion, MilestoneSubmission.review_status)
+        select(SubmissionVersion, SupervisorReview.decision)
         .join(
             MilestoneSubmission,
             MilestoneSubmission.id == SubmissionVersion.submission_id,
+        )
+        .outerjoin(
+            SupervisorReview,
+            SupervisorReview.version_id == SubmissionVersion.id,
         )
         .where(MilestoneSubmission.milestone_id == access.milestone.id)
         .order_by(SubmissionVersion.submitted_at, SubmissionVersion.id)
