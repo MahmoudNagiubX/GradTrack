@@ -274,3 +274,42 @@ class SubmissionVersion(Base):
     file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     media_type: Mapped[str | None] = mapped_column(String(127), nullable=True)
     url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+
+
+class SupervisorReview(Base):
+    """One immutable review decision for a single submission version."""
+
+    __tablename__ = "supervisor_reviews"
+    __table_args__ = (
+        UniqueConstraint("version_id", name="uq_supervisor_reviews_version"),
+        CheckConstraint(
+            "decision IN ('approved', 'returned')",
+            name="ck_supervisor_reviews_decision",
+        ),
+        CheckConstraint(
+            "(decision = 'returned' AND feedback IS NOT NULL "
+            "AND feedback = btrim(feedback) AND length(feedback) BETWEEN 1 AND 2000) "
+            "OR (decision = 'approved' AND (feedback IS NULL OR "
+            "(feedback = btrim(feedback) AND length(feedback) <= 2000)))",
+            name="ck_supervisor_reviews_feedback",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    version_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("submission_versions.id", name="fk_supervisor_reviews_version"),
+        nullable=False,
+    )
+    reviewer_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_supervisor_reviews_reviewer"),
+        nullable=False,
+    )
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

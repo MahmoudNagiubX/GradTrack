@@ -4,7 +4,14 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 
 class RegistrationRequest(BaseModel):
@@ -188,7 +195,48 @@ class SubmissionVersionResponse(BaseModel):
     file_size_bytes: int | None
     media_type: str | None
     url: str | None
-    review_status: Literal["pending_review"]
+    review_status: Literal["pending_review", "returned", "approved"]
+
+
+class PendingSubmissionResponse(SubmissionVersionResponse):
+    """A latest pending version with the team, milestone, and submitter labels."""
+
+    team_name: str
+    milestone_name: str
+    submitter_name: str
+
+
+class ReviewDecisionRequest(BaseModel):
+    """A supervisor's immutable decision for one pending version."""
+
+    model_config = {"extra": "forbid"}
+
+    decision: Literal["approved", "returned"]
+    feedback: Annotated[str | None, Field(max_length=2000)] = None
+
+    @field_validator("feedback")
+    @classmethod
+    def trim_optional_feedback(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def require_return_feedback(self) -> "ReviewDecisionRequest":
+        if self.decision == "returned" and self.feedback is None:
+            raise ValueError("Written feedback is required to return a submission")
+        return self
+
+
+class SupervisorReviewResponse(BaseModel):
+    """The immutable decision, reviewer attribution, and feedback for one version."""
+
+    id: UUID
+    version_id: UUID
+    reviewer_id: UUID
+    decision: Literal["approved", "returned"]
+    feedback: str | None
+    reviewed_at: datetime
 
 
 def _normalize_aware_utc(value: datetime) -> datetime:
