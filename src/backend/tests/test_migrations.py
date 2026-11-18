@@ -34,6 +34,7 @@ def test_empty_schema_can_upgrade_downgrade_and_upgrade_again(
                 "milestones",
                 "milestone_submissions",
                 "submission_versions",
+                "supervisor_reviews",
             }
             assert expected_tables <= set(inspect(connection).get_table_names())
 
@@ -239,6 +240,130 @@ def test_phase3_data_survives_milestone_migration_and_downgrade(
             assert "milestones" in inspect(connection).get_table_names()
             assert "milestone_submissions" in inspect(connection).get_table_names()
             assert "submission_versions" in inspect(connection).get_table_names()
+            transaction.rollback()
+    finally:
+        with postgres_engine.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+def test_supervisor_review_migration_preserves_phase5a_data_and_round_trips(
+    postgres_engine: Engine,
+) -> None:
+    schema = f"review_migration_{uuid4().hex}"
+    student_id = uuid4()
+    supervisor_id = uuid4()
+    team_id = uuid4()
+    milestone_id = uuid4()
+    submission_id = uuid4()
+    version_id = uuid4()
+
+    with postgres_engine.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+
+    try:
+        with postgres_engine.connect() as connection:
+            transaction = connection.begin()
+            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}", public')
+            config = Config("alembic.ini")
+            config.attributes["connection"] = connection
+            command.upgrade(config, "gt20_21_0003")
+            connection.execute(
+                text(
+                    "INSERT INTO users (id, email, password_hash, display_name, "
+                    "system_role) VALUES (:student_id, 'phase5-student@example.test', "
+                    "'synthetic-hash', 'Synthetic Student', 'student'), "
+                    "(:supervisor_id, 'phase5-supervisor@example.test', "
+                    "'synthetic-hash', 'Synthetic Supervisor', 'supervisor')"
+                ),
+                {"student_id": student_id, "supervisor_id": supervisor_id},
+            )
+            connection.execute(
+                text("INSERT INTO teams (id, name) VALUES (:id, 'Synthetic Team')"),
+                {"id": team_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO milestones (id, team_id, name, due_at) "
+                    "VALUES (:id, :team_id, 'Synthetic SRS', '2026-12-01T15:00:00Z')"
+                ),
+                {"id": milestone_id, "team_id": team_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO milestone_submissions (id, milestone_id) "
+                    "VALUES (:id, :milestone_id)"
+                ),
+                {"id": submission_id, "milestone_id": milestone_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO submission_versions (id, submission_id, "
+                    "version_number, submitted_by, submitted_at, "
+                    "deadline_at_submission, is_late, source_type, url) VALUES "
+                    "(:id, :submission_id, 1, :student_id, '2026-11-30T15:00:00Z', "
+                    "'2026-12-01T15:00:00Z', false, 'link', 'https://example.org/srs')"
+                ),
+                {
+                    "id": version_id,
+                    "submission_id": submission_id,
+                    "student_id": student_id,
+                },
+            )
+
+            command.upgrade(config, "head")
+            connection.execute(
+                text(
+                    "INSERT INTO supervisor_reviews (id, version_id, reviewer_id, "
+                    "decision, feedback, reviewed_at) VALUES (:id, :version_id, "
+                    ":reviewer_id, 'returned', 'Revise.', '2026-12-01T16:00:00Z')"
+                ),
+                {
+                    "id": uuid4(),
+                    "version_id": version_id,
+                    "reviewer_id": supervisor_id,
+                },
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM submission_versions WHERE id = :id"),
+                    {"id": version_id},
+                )
+                == 1
+            )
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT count(*) FROM supervisor_reviews WHERE version_id = :id"
+                    ),
+                    {"id": version_id},
+                )
+                == 1
+            )
+
+            command.downgrade(config, "gt20_21_0003")
+            assert "supervisor_reviews" not in inspect(connection).get_table_names()
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM submission_versions WHERE id = :id"),
+                    {"id": version_id},
+                )
+                == 1
+            )
+            triggers = (
+                connection.execute(
+                    text(
+                        "SELECT tgname FROM pg_trigger "
+                        "WHERE tgrelid = 'submission_versions'::regclass "
+                        "AND NOT tgisinternal"
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert "trg_submission_versions_immutable" in triggers
+
+            command.upgrade(config, "head")
+            assert "supervisor_reviews" in inspect(connection).get_table_names()
             transaction.rollback()
     finally:
         with postgres_engine.begin() as connection:
