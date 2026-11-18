@@ -1,9 +1,9 @@
 # GradTrack
 A full-stack graduation project management platform featuring a React web dashboard, Flutter mobile companion, collaborative task management, milestone tracking, supervisor reviews, analytics, and smart notifications.
 
-## Backend setup — Phase 2
+## Backend setup — Phases 0–3
 
-The FastAPI backend provides process and database health endpoints, a migration-managed PostgreSQL persistence foundation, and manual student registration with Argon2id password hashing and short-lived JWT bearer access tokens. Team-management and graduation-project workflows remain later phases.
+The FastAPI backend provides process and database health endpoints, a migration-managed PostgreSQL persistence foundation, manual student registration with Argon2id password hashing and short-lived JWT bearer access tokens, and team creation, membership, and supervisor assignment APIs.
 
 Use Python 3.12 or newer. From the repository root, create the backend virtual environment and move into the backend directory:
 
@@ -88,6 +88,20 @@ OpenAPI documentation is available at <http://127.0.0.1:8000/docs>. Authenticati
 Send the login token in `Authorization: Bearer <access_token>` when calling `/auth/me`. Password hashes and plaintext passwords are never included in response schemas. Unknown accounts and wrong passwords use the same generic login error. A disabled account cannot log in or use a previously issued token. The shared auth module also provides server-side system-role and team-membership/leader dependencies for protected routes; no public supervisor/coordinator provisioning or role-elevation endpoint exists. Privileged-role accounts are created only by synthetic database fixtures in tests.
 
 Passwords must contain 16–128 Unicode characters. The API accepts passphrases of 64 or more characters, Unicode, and spaces, and preserves password input exactly without trimming or truncating it. No uppercase/lowercase/digit/symbol combination is required. No reliable offline compromised-password blocklist is present in this repository, so GT-53 does not add one or introduce another dependency.
+
+### Team and supervisor APIs
+
+Team data is restricted server-side. `GET /teams` lists only a student's member teams or a supervisor's currently assigned teams. A coordinator can list all pilot teams. `GET /teams/{team_id}` follows the same access rules; unauthorized team reads return `404` to avoid disclosing whether another team's ID exists.
+
+| Request | Permission | Behavior |
+|---|---|---|
+| `POST /teams` | Authenticated student | Creates a team and its first leader membership in one database transaction. |
+| `GET /teams` | Authenticated account | Lists only teams allowed by the caller's membership, assignment, or coordinator role. |
+| `GET /teams/{team_id}` | Member, currently assigned supervisor, or coordinator | Reads one authorized team and its member display names/roles. |
+| `POST /teams/{team_id}/members` | Student who is that team's leader | Adds an existing active student as a regular member; duplicate membership returns `409`. |
+| `PUT /teams/{team_id}/supervisor` | Authenticated Programme Coordinator | Assigns or reassigns the team's current supervisor. The selected account must be an active supervisor. |
+
+The current schema has no `Programme` entity or team-to-programme relationship. For the single-programme pilot, coordinator assignment and team visibility are temporarily global across teams. Add programme-specific coordinator scoping when the schema supports multiple programmes. Students, team leaders, and supervisors cannot assign or change supervisor assignments.
 
 ### Configuration
 
