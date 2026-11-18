@@ -675,7 +675,7 @@ def list_submissions(access: SubmissionReader) -> list[SubmissionVersionResponse
         .order_by(SubmissionVersion.submitted_at, SubmissionVersion.id)
     ).all()
     return [
-        _serialize_version(version, review_status, access.milestone)
+        _serialize_version(version, review_status or "pending_review", access.milestone)
         for version, review_status in rows
     ]
 

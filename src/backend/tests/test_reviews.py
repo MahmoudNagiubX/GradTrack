@@ -173,6 +173,9 @@ def test_pending_inbox_is_current_supervisor_scoped_and_includes_review_context(
     )
     assert other_submission.status_code == 201
 
+    history = api_client.get(
+        _submissions_path(team, milestone), headers=_headers(student)
+    )
     inbox = api_client.get(
         "/supervisor/submissions/pending", headers=_headers(supervisor)
     )
@@ -182,6 +185,8 @@ def test_pending_inbox_is_current_supervisor_scoped_and_includes_review_context(
 
     assert inbox.status_code == 200
     assert len(inbox.json()) == 1
+    assert history.status_code == 200
+    assert history.json()[0]["review_status"] == "pending_review"
     item = inbox.json()[0]
     assert item["id"] == version["id"]
     assert item["version_number"] == 1
@@ -989,7 +994,7 @@ def test_full_team_submission_review_return_and_approval_flow(
     api_client: TestClient,
     db_session: OrmSession,
 ) -> None:
-    email = f"phase5b.student.{uuid4().hex}@example.test"
+    email = f"phase5b.student.{uuid4().hex}@example.com"
     password = "synthetic-phase5b-passphrase"
     registered = api_client.post(
         "/auth/register",
