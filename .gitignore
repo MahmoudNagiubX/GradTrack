@@ -35,6 +35,10 @@ build/
 *.sqlite3
 *.log
 
+# Local private submission artifacts; application storage must remain outside the checkout.
+/.gradtrack-private-uploads/
+/.gradtrack-upload-staging/
+
 # OS
 .DS_Store
 Thumbs.db
