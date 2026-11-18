@@ -39,9 +39,11 @@ The approved password policy is now enforced in both registration and login sche
 
 - Existing database-independent GradTrack baseline before the policy change: `18 passed, 26 deselected` with `src/backend/.venv/Scripts/python.exe -m pytest -m "not postgresql"`.
 - Password-policy regression tests were first run against the old minimum and failed at the 15-character rejection boundary (2 expected failures); after changing the request schemas to 16, the focused suite reported `7 passed, 6 deselected`.
-- Full PostgreSQL suite, Ruff, formatting, diff review, commits, push, PR, and exact-head GitHub CI: pending at audit creation; append verified results before completing GT-53.
+- Local final checks: 25 database-independent tests passed, 29 PostgreSQL tests were deselected because no local PostgreSQL service/psql is installed; Ruff lint, Ruff format check, pip check, OpenAPI password bounds, and `git diff --check` passed. The focused password-policy tests first failed at the 15-character boundary, then passed after implementation (7 passed, 6 deselected).
 - GT-52 upstream: branch `feature/GT-52-database-foundation`, commit `c79cd9b172ca8d8fa2b4e115d7141de2b598525a`, PR [#3](https://github.com/MahmoudNagiubX/GradTrack/pull/3) open/unmerged. Exact-head CI run [#4](https://github.com/MahmoudNagiubX/GradTrack/actions/runs/44232344489) was observed completed with success during this audit.
-- GT-53 branch/commit/PR/CI: pending. GT-54 remains gated on the GT-53 local and GitHub CI checks.
+- GT-53 branch: `feature/GT-53-manual-auth`; pushed head `896f09ad6b807ead081729eeea09cce77b71d40e`. Commits: `09fbf3a37b27cce72ff4d9d5809e7ad312232169` (implementation), `ec3a789456df9de2ff16bab4ac51ad7418fbbc4f` (tests), `834985c6b4426d1ab75bda2ba7c938337b9016e3` (CI), `896f09ad6b807ead081729eeea09cce77b71d40e` (documentation/audit).
+- GT-53 PR [#4](https://github.com/MahmoudNagiubX/GradTrack/pull/4) targets `develop`, is open/unmerged, and is stacked on PRs #2 and #3. Exact-head GitHub Actions run [#5](https://github.com/MahmoudNagiubX/GradTrack/actions/runs/44271516647) passed: 54 tests passed, PostgreSQL migration upgrade passed, and both `Backend tests and lint` and `repository-check` jobs succeeded.
+- GT-54 was not started at this audit revision. Its gate passed on GT-53 head `896f09ad6b807ead081729eeea09cce77b71d40e`; create the GT-54 branch from the verified GT-53 head if proceeding.
 
 ## Future reuse opportunities
 
@@ -50,6 +52,6 @@ The approved password policy is now enforced in both registration and login sche
 
 ## Remaining blockers and limitations
 
-- Local PostgreSQL is unavailable, so the full integration suite must pass using the configured GitHub Actions PostgreSQL service on the exact GT-53 PR head.
-- GT-54 has not started. Its approved rule is coordinator-only supervisor assignment; the current schema has no Programme entity, so coordinator scope is temporarily global for the single-programme pilot. Enforce programme scope if a multi-programme schema is introduced.
+- Local PostgreSQL is unavailable; the GT-53 PostgreSQL integration suite passed through the configured GitHub Actions PostgreSQL service on the exact pushed head above.
+- At this audit revision GT-54 has not started. Its approved rule is coordinator-only supervisor assignment; the current schema has no Programme entity, so coordinator scope is temporarily global for the single-programme pilot. Enforce programme scope if a multi-programme schema is introduced.
 - Human review and merge of upstream PRs #2 and #3, and any new GT-53/GT-54 PRs, remain required. No PR is to be merged by this execution.
