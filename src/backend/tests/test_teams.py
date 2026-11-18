@@ -444,3 +444,103 @@ def test_coordinator_cannot_assign_inactive_supervisor(
 
     assert response.status_code == 422
     assert db_session.get(SupervisorAssignment, team.id) is None
+
+
+def test_end_to_end_student_team_coordinator_supervisor_flow(
+    api_client: TestClient, db_session: Session
+) -> None:
+    student_password = "synthetic-student-passphrase"
+    student_email = f"{uuid4().hex}@example.com"
+    registration = api_client.post(
+        "/auth/register",
+        json={
+            "email": student_email,
+            "display_name": "Synthetic Team Leader",
+            "password": student_password,
+        },
+    )
+    assert registration.status_code == 201
+    assert registration.json()["system_role"] == "student"
+
+    student_login = api_client.post(
+        "/auth/login",
+        json={"email": student_email, "password": student_password},
+    )
+    assert student_login.status_code == 200
+    student_headers = {
+        "Authorization": f"Bearer {student_login.json()['access_token']}"
+    }
+
+    member_password = "synthetic-member-passphrase"
+    member_email = f"{uuid4().hex}@example.com"
+    member_registration = api_client.post(
+        "/auth/register",
+        json={
+            "email": member_email,
+            "display_name": "Synthetic Team Member",
+            "password": member_password,
+        },
+    )
+    assert member_registration.status_code == 201
+
+    team = api_client.post(
+        "/teams",
+        headers=student_headers,
+        json={"name": "Synthetic Integrated Team"},
+    )
+    assert team.status_code == 201
+
+    member = api_client.post(
+        f"/teams/{team.json()['id']}/members",
+        headers=student_headers,
+        json={"user_id": member_registration.json()["id"]},
+    )
+    assert team.json()["members"][0]["role"] == "leader"
+    assert member.status_code == 201
+    assert member.json()["role"] == "member"
+
+    coordinator_password = "synthetic-coordinator-passphrase"
+    coordinator = _new_user(db_session, "coordinator")
+    coordinator.password_hash = security.hash_password(coordinator_password)
+    db_session.flush()
+    coordinator_login = api_client.post(
+        "/auth/login",
+        json={"email": coordinator.email, "password": coordinator_password},
+    )
+    assert coordinator_login.status_code == 200
+    coordinator_headers = {
+        "Authorization": f"Bearer {coordinator_login.json()['access_token']}"
+    }
+
+    supervisor_password = "synthetic-supervisor-passphrase"
+    supervisor = _new_user(db_session, "supervisor")
+    supervisor.password_hash = security.hash_password(supervisor_password)
+    db_session.flush()
+    supervisor_login = api_client.post(
+        "/auth/login",
+        json={"email": supervisor.email, "password": supervisor_password},
+    )
+    assert supervisor_login.status_code == 200
+    supervisor_headers = {
+        "Authorization": f"Bearer {supervisor_login.json()['access_token']}"
+    }
+
+    assignment = api_client.put(
+        f"/teams/{team.json()['id']}/supervisor",
+        headers=coordinator_headers,
+        json={"supervisor_id": str(supervisor.id)},
+    )
+    supervisor_team_list = api_client.get("/teams", headers=supervisor_headers)
+    supervisor_team_read = api_client.get(
+        f"/teams/{team.json()['id']}", headers=supervisor_headers
+    )
+
+    assert assignment.status_code == 200
+    assert assignment.json()["supervisor_id"] == str(supervisor.id)
+    assert [item["id"] for item in supervisor_team_list.json()] == [team.json()["id"]]
+    assert supervisor_team_read.status_code == 200
+    assert supervisor_team_read.json()["supervisor_id"] == str(supervisor.id)
+    assert {item["role"] for item in supervisor_team_read.json()["members"]} == {
+        "leader",
+        "member",
+    }
