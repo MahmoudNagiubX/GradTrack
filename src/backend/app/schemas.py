@@ -1,6 +1,7 @@
-"""Request and response schemas for manual authentication."""
+"""Request and response schemas for authentication and team APIs."""
 
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, StringConstraints, field_validator
@@ -59,3 +60,53 @@ class AccessTokenResponse(BaseModel):
     access_token: str
     token_type: str = "Bearer"
     expires_in: int
+
+
+class TeamCreateRequest(BaseModel):
+    """A student-provided team name; role fields are not accepted from clients."""
+
+    model_config = {"extra": "forbid"}
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class TeamMemberAddRequest(BaseModel):
+    """The ID of an existing student to add as a regular team member."""
+
+    model_config = {"extra": "forbid"}
+
+    user_id: UUID
+
+
+class SupervisorAssignmentRequest(BaseModel):
+    """The account selected by an authorized coordinator."""
+
+    model_config = {"extra": "forbid"}
+
+    supervisor_id: UUID
+
+
+class TeamMemberResponse(BaseModel):
+    """Limited member fields visible within an authorized team."""
+
+    user_id: UUID
+    display_name: str
+    role: Literal["member", "leader"]
+
+
+class TeamResponse(BaseModel):
+    """A team and its membership, returned only to authorized viewers."""
+
+    id: UUID
+    name: str
+    created_at: datetime
+    supervisor_id: UUID | None
+    members: list[TeamMemberResponse]
+
+
+class SupervisorAssignmentResponse(BaseModel):
+    """The team's current supervisor assignment."""
+
+    team_id: UUID
+    supervisor_id: UUID
+    assigned_at: datetime

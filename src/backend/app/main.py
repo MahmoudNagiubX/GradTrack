@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.auth import router as auth_router
 from app.config import Settings
 from app.database import check_database_connection, engine
+from app.teams import router as teams_router
 
 settings = Settings.from_environment()
 
@@ -35,6 +36,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 app.include_router(auth_router)
+app.include_router(teams_router)
 
 
 @app.exception_handler(RequestValidationError)
