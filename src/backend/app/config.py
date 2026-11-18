@@ -4,6 +4,9 @@ import logging
 import os
 from dataclasses import dataclass
 
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
+
 _LOG_LEVELS = {
     "DEBUG": logging.DEBUG,
     "INFO": logging.INFO,
@@ -14,15 +17,19 @@ _LOG_LEVELS = {
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off"}
 _DEFAULT_APP_NAME = "GradTrack API"
+_DEFAULT_DATABASE_URL = (
+    "postgresql+psycopg://gradtrack:gradtrack@127.0.0.1:5432/gradtrack_dev"
+)
 
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    """Small set of settings needed by the Phase 0 API."""
+    """Small set of settings needed by the GradTrack API."""
 
     app_name: str = _DEFAULT_APP_NAME
     debug: bool = False
     log_level: int = logging.INFO
+    database_url: str = _DEFAULT_DATABASE_URL
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -48,4 +55,26 @@ class Settings:
                 f"GRADTRACK_LOG_LEVEL must be one of: {allowed_levels}"
             ) from None
 
-        return cls(app_name=app_name, debug=debug, log_level=log_level)
+        database_url = os.getenv(
+            "GRADTRACK_DATABASE_URL", _DEFAULT_DATABASE_URL
+        ).strip()
+        try:
+            parsed_database_url = make_url(database_url)
+        except ArgumentError:
+            raise ValueError("GRADTRACK_DATABASE_URL must be a valid URL") from None
+        if (
+            not database_url
+            or parsed_database_url.drivername != "postgresql+psycopg"
+            or not parsed_database_url.database
+        ):
+            raise ValueError(
+                "GRADTRACK_DATABASE_URL must use postgresql+psycopg and "
+                "include a database name"
+            )
+
+        return cls(
+            app_name=app_name,
+            debug=debug,
+            log_level=log_level,
+            database_url=database_url,
+        )
