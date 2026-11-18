@@ -210,7 +210,9 @@ def test_link_submission_snapshots_deadline_and_is_immutable_after_edit(
         headers=_headers(student),
     )
     assert spoofed.status_code == 422
-    assert "input" not in spoofed.text
+    spoofed_errors = spoofed.json()["detail"]
+    assert all(set(error) == {"loc", "msg", "type"} for error in spoofed_errors)
+    assert "2000-01-01T00:00:00Z" not in spoofed.text
 
     changed_deadline = "2026-11-30T15:00:00Z"
     updated = api_client.patch(
