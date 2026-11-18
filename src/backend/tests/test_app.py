@@ -23,6 +23,22 @@ def test_unknown_route_returns_not_found() -> None:
     assert response.json() == {"detail": "Not Found"}
 
 
+def test_auth_validation_error_does_not_echo_submitted_password() -> None:
+    submitted_password = "synthetic-private-password-value"
+    response = client.post(
+        "/auth/register",
+        json={
+            "email": "synthetic@example.com",
+            "display_name": "Synthetic Student",
+            "password": [submitted_password],
+        },
+    )
+
+    assert response.status_code == 422
+    assert submitted_password not in response.text
+    assert "input" not in response.text
+
+
 def test_process_health_does_not_require_database(
     monkeypatch,
 ) -> None:

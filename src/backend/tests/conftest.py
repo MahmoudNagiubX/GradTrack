@@ -1,8 +1,15 @@
 """Fixtures for PostgreSQL-backed integration tests."""
 
+import os
 from collections.abc import Generator
 
 import pytest
+
+# A synthetic key keeps auth routes testable without adding a production secret.
+os.environ["GRADTRACK_AUTH_SECRET_KEY"] = (
+    "synthetic-only-gradtrack-auth-test-key-32-bytes-minimum"
+)
+
 from alembic import command
 from alembic.config import Config
 from app.config import Settings
