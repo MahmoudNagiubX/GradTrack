@@ -87,7 +87,7 @@ def _serialize_teams(teams: list[Team], session: Session) -> list[TeamResponse]:
     ]
 
 
-def _get_visible_team(team_id: UUID, current_user: User, session: Session) -> Team:
+def get_visible_team(team_id: UUID, current_user: User, session: Session) -> Team:
     """Return the team only to members, its current supervisor, or a coordinator."""
     team = session.get(Team, team_id)
     if team is None:
@@ -168,7 +168,7 @@ def read_team(
     team_id: UUID, current_user: CurrentUser, session: DbSession
 ) -> TeamResponse:
     """Read one team only when membership, assignment, or coordinator scope permits."""
-    team = _get_visible_team(team_id, current_user, session)
+    team = get_visible_team(team_id, current_user, session)
     return _serialize_teams([team], session)[0]
 
 

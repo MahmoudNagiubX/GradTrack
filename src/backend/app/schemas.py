@@ -1,6 +1,6 @@
 """Request and response schemas for authentication and team APIs."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -110,3 +110,54 @@ class SupervisorAssignmentResponse(BaseModel):
     team_id: UUID
     supervisor_id: UUID
     assigned_at: datetime
+
+
+class MilestoneCreateRequest(BaseModel):
+    """Client fields accepted when an authorized writer creates a milestone."""
+
+    model_config = {"extra": "forbid"}
+
+    name: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    ]
+    description: str | None = None
+    due_at: datetime
+
+    @field_validator("due_at")
+    @classmethod
+    def normalize_due_at(cls, value: datetime) -> datetime:
+        return _normalize_aware_utc(value)
+
+
+class MilestoneUpdateRequest(BaseModel):
+    """Only the deadline can be changed during the milestone planning phase."""
+
+    model_config = {"extra": "forbid"}
+
+    due_at: datetime
+
+    @field_validator("due_at")
+    @classmethod
+    def normalize_due_at(cls, value: datetime) -> datetime:
+        return _normalize_aware_utc(value)
+
+
+class MilestoneResponse(BaseModel):
+    """A milestone with its non-persisted planning/deadline state."""
+
+    id: UUID
+    team_id: UUID
+    name: str
+    description: str | None
+    due_at: datetime
+    deadline_status: Literal["scheduled", "due_soon", "overdue"]
+    created_at: datetime
+    updated_at: datetime
+
+
+def _normalize_aware_utc(value: datetime) -> datetime:
+    """Require an explicit timezone offset and normalize the instant to UTC."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("due_at must be timezone-aware and include an offset")
+    return value.astimezone(timezone.utc)
