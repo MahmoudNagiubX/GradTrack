@@ -1,9 +1,9 @@
 # GradTrack
 A full-stack graduation project management platform featuring a React web dashboard, Flutter mobile companion, collaborative task management, milestone tracking, supervisor reviews, analytics, and smart notifications.
 
-## Backend setup — Phases 0–4
+## Backend setup — Phases 0–5A
 
-The FastAPI backend provides process and database health endpoints, a migration-managed PostgreSQL persistence foundation, manual student registration with Argon2id password hashing and short-lived JWT bearer access tokens, team creation and membership, supervisor assignment, and team-scoped milestone and deadline APIs.
+The FastAPI backend provides process and database health endpoints, a migration-managed PostgreSQL persistence foundation, manual student registration with Argon2id password hashing and short-lived JWT bearer access tokens, team creation and membership, supervisor assignment, team-scoped milestone and deadline APIs, and first-version file or HTTPS-link milestone submissions with immutable deadline snapshots.
 
 Use Python 3.12 or newer. From the repository root, create the backend virtual environment and move into the backend directory:
 
@@ -130,7 +130,62 @@ Example request bodies:
 }
 ```
 
-`due_at` must include a timezone offset. The API stores and returns it in UTC. Each response includes a derived `deadline_status`: `scheduled` when more than seven days remain, `due_soon` when the deadline is in the next seven days or is exactly at the current instant, and `overdue` only after the deadline has passed. This planning state is not persisted and is separate from any future submission or review status. Phase 5 must snapshot the applicable deadline on each accepted submission version so later deadline edits cannot change its saved late/on-time result; submission history is not implemented here.
+`due_at` must include a timezone offset. The API stores and returns it in UTC. Each response includes a derived `deadline_status`: `scheduled` when more than seven days remain, `due_soon` when the deadline is in the next seven days or is exactly at the current instant, and `overdue` only after the deadline has passed. This planning state is not persisted and is separate from Phase 5A's submission lateness and review state.
+
+### Milestone submission APIs — Phase 5A
+
+Only an active student who currently belongs to the milestone's team can create its first submission. A milestone can have one initial submission in this phase; a second attempt returns `409` and cannot replace the accepted version. Team members, the currently assigned supervisor, and a coordinator can list/read versions within their authorized team scope. Coordinator access is temporarily global for the single-programme pilot because the schema has no `Programme` entity. A former supervisor loses access after reassignment.
+
+| Request | Permission | Behavior |
+|---|---|---|
+| `POST /teams/{team_id}/milestones/{milestone_id}/submissions/link` | Active student on the team | Accepts JSON containing one validated HTTPS URL. The server stores the URL without fetching or previewing it. |
+| `POST /teams/{team_id}/milestones/{milestone_id}/submissions/file` | Active student on the team | Accepts one `multipart/form-data` part named `file` and stores it under a server-generated opaque key. |
+| `GET /teams/{team_id}/milestones/{milestone_id}/submissions` | Authorized team reader | Lists immutable versions oldest to newest. |
+| `GET /teams/{team_id}/milestones/{milestone_id}/submissions/{version_id}` | Authorized team reader | Reads version metadata without exposing the private storage key. |
+| `GET /teams/{team_id}/milestones/{milestone_id}/submissions/{version_id}/download` | Authorized team reader; file versions only | Streams the file as an attachment after fresh authentication and current team authorization. |
+
+Link requests use JSON, for example:
+
+```json
+{
+  "url": "https://example.org/submissions/srs"
+}
+```
+
+File requests use multipart form data with exactly one `file` field. Supported extensions are `.pdf`, `.docx`, `.pptx`, `.png`, `.jpg`, `.jpeg`, `.zip`, and `.txt`. Files must be nonempty and no larger than **20 MiB**; multipart request bodies are bounded to 21 MiB including framing. The API validates the extension and content signature/structure, rejects mismatched MIME types, checks UTF-8 text and bounded ZIP/OOXML metadata, and does not execute, extract, render, or scan uploaded content. The browser-provided MIME type is advisory. HTTPS links are limited to 2,048 characters and reject local/internal hosts, IP literals that are not globally routable, credentials, fragments, and non-HTTPS schemes. Links are stored as untrusted external content; the server never resolves or fetches them.
+
+File uploads require `GRADTRACK_PRIVATE_UPLOAD_DIR` to point to an absolute private directory **outside the repository and any served/static directory**. The application creates the directory when permitted; missing, relative, inaccessible, repository-contained, or symlinked roots fail closed for file operations. Link submissions, authentication, and `/health` do not require this setting. Files are available only through the authorized download endpoint and are sent as attachments with `nosniff` and `no-store` headers. The database stores an immutable version record and an opaque storage key, never the bytes or an absolute path.
+
+Set a local directory outside the checkout before starting the API. These are example locations, not credentials or repository-relative paths:
+
+```powershell
+$env:GRADTRACK_PRIVATE_UPLOAD_DIR = Join-Path $env:LOCALAPPDATA "GradTrack\private-uploads"
+```
+
+```shell
+export GRADTRACK_PRIVATE_UPLOAD_DIR="$HOME/.local/share/gradtrack/private-uploads"
+```
+
+On Windows, restrict the directory's ACL to the service account and authorized local administrators using Windows security tools; POSIX permission bits do not secure Windows folders. Avoid web roots, synchronized/public folders, and repository paths. Keep this directory persistent for the local single-server demo and include it in an appropriate private backup if needed.
+
+Example requests (replace the bearer token with the token returned by login):
+
+```shell
+curl -X POST http://127.0.0.1:8000/teams/TEAM_UUID/milestones/MILESTONE_UUID/submissions/link \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.org/submissions/srs"}'
+```
+
+```shell
+curl -X POST http://127.0.0.1:8000/teams/TEAM_UUID/milestones/MILESTONE_UUID/submissions/file \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -F "file=@Synthetic-SRS.pdf;type=application/pdf"
+```
+
+The server captures `submitted_at` after file validation and while the milestone row is locked. Each immutable version stores the deadline snapshot and computes `is_late` as `submitted_at > deadline_at_submission`; submission exactly at the deadline is on time. Editing the milestone deadline later does not change a saved version. This `is_late` field is separate from Phase 4's derived `deadline_status` and from the initial `pending_review` state. Phase 5A does not implement approval, return, revision, reviewer comments, deletion, or retention workflows.
+
+Local private storage is approved for the single-server course-development/demo MVP. It is not a multi-instance storage design or a production internet deployment. This phase does not provide antivirus scanning/content disarm, encryption-at-rest service, a total disk quota, a global concurrent-upload limit, automated cleanup, or backups; configure deployment/server limits for concurrent requests and available disk capacity. A process crash after a file is moved but before its database transaction commits can leave an unreferenced private file; handled errors remove temporary/uncommitted files. Do not commit upload data. Repository-root `.gradtrack-private-uploads/` and `.gradtrack-upload-staging/` paths are ignored as accidental local artifacts, but the application rejects repository-contained storage paths.
 
 ### Configuration
 
@@ -143,18 +198,21 @@ Configuration is read from environment variables. Defaults are safe for local de
 | `GRADTRACK_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `GRADTRACK_DATABASE_URL` | `postgresql+psycopg://gradtrack:gradtrack@127.0.0.1:5432/gradtrack_dev` | PostgreSQL URL using the Psycopg 3 driver |
 | `GRADTRACK_AUTH_SECRET_KEY` | No default | Required for authentication; at least 32 UTF-8 bytes |
+| `GRADTRACK_PRIVATE_UPLOAD_DIR` | No default | Required for private file uploads/downloads; absolute path outside the repository and public roots |
 
 For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting Uvicorn to enable local debug mode. Do not commit `.env` files or real database credentials.
 
-### Phases 1–4 schema
+### Phases 1–5A schema
 
 - `users` stores UUID keys, lowercase/trimmed unique email, password-hash storage, a nonempty display name, active state, and timezone-aware timestamps. Allowed system roles are `student`, `supervisor`, and `coordinator`.
 - `teams` stores UUID keys and nonblank names. A team can be unassigned.
 - `team_memberships` references a user and team, permits `member` or `leader` as a team-scoped role, and prevents duplicate membership for the same user/team pair.
 - `supervisor_assignments` stores only the current assignment. Its team key allows at most one current supervisor; absence of a row means unassigned. Reassignment updates that row, and the domain function verifies that the referenced user has the supervisor system role. This phase does not keep assignment history.
 - `milestones` stores a UUID, owning team, trimmed name, optional description, required timezone-aware deadline, and creation/update timestamps. A team/deadline index supports ordered reads. The deadline status is derived at response time and is not stored.
+- `milestone_submissions` stores at most one initial submission thread per milestone, with `pending_review` as its initial state.
+- `submission_versions` stores version number, authenticated submitter, trusted UTC submission time, deadline snapshot, computed late flag, and exactly one HTTPS link or private-file metadata source. PostgreSQL prevents updates and deletes to accepted versions. Phase 5A accepts version 1 only; review/return/revision APIs are not implemented.
 
-Submission versions, late flags, reviews, approval states, and other Phase 5 workflow entities are not implemented in this phase.
+Review, return, revision, and approval actions remain outside Phase 5A.
 
 ### Tests and code checks
 
