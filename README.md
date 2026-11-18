@@ -1,9 +1,9 @@
 # GradTrack
 A full-stack graduation project management platform featuring a React web dashboard, Flutter mobile companion, collaborative task management, milestone tracking, supervisor reviews, analytics, and smart notifications.
 
-## Backend setup — Phases 0–5A
+## Backend setup - Phases 0-5B
 
-The FastAPI backend provides process and database health endpoints, a migration-managed PostgreSQL persistence foundation, manual student registration with Argon2id password hashing and short-lived JWT bearer access tokens, team creation and membership, supervisor assignment, team-scoped milestone and deadline APIs, and first-version file or HTTPS-link milestone submissions with immutable deadline snapshots.
+The FastAPI backend provides process and database health endpoints, a migration-managed PostgreSQL persistence foundation, manual student registration with Argon2id password hashing and short-lived JWT bearer access tokens, team creation and membership, supervisor assignment, team-scoped milestone and deadline APIs, and first-version file or HTTPS-link milestone submissions, supervisor reviews, feedback, approval, and returned-version revisions with immutable deadline snapshots.
 
 Use Python 3.12 or newer. From the repository root, create the backend virtual environment and move into the backend directory:
 
@@ -183,9 +183,23 @@ curl -X POST http://127.0.0.1:8000/teams/TEAM_UUID/milestones/MILESTONE_UUID/sub
   -F "file=@Synthetic-SRS.pdf;type=application/pdf"
 ```
 
-The server captures `submitted_at` after file validation and while the milestone row is locked. Each immutable version stores the deadline snapshot and computes `is_late` as `submitted_at > deadline_at_submission`; submission exactly at the deadline is on time. Editing the milestone deadline later does not change a saved version. This `is_late` field is separate from Phase 4's derived `deadline_status` and from the initial `pending_review` state. Phase 5A does not implement approval, return, revision, reviewer comments, deletion, or retention workflows.
+The server captures `submitted_at` after file validation and while the milestone row is locked. Each immutable version stores the deadline snapshot and computes `is_late` as `submitted_at > deadline_at_submission`; submission exactly at the deadline is on time. Editing the milestone deadline later does not change a saved version. This `is_late` field is separate from Phase 4's derived `deadline_status` and from the initial `pending_review` state. Phase 5A alone did not implement review or revision workflows; Phase 5B adds the scoped review flow described below. Deletion and retention automation remain out of scope.
 
 Local private storage is approved for the single-server course-development/demo MVP. It is not a multi-instance storage design or a production internet deployment. This phase does not provide antivirus scanning/content disarm, encryption-at-rest service, a total disk quota, a global concurrent-upload limit, automated cleanup, or backups; configure deployment/server limits for concurrent requests and available disk capacity. A process crash after a file is moved but before its database transaction commits can leave an unreferenced private file; handled errors remove temporary/uncommitted files. Do not commit upload data. Repository-root `.gradtrack-private-uploads/` and `.gradtrack-upload-staging/` paths are ignored as accidental local artifacts, but the application rejects repository-contained storage paths.
+
+### Supervisor review and revision APIs - Phase 5B
+
+The review workflow uses the existing submission thread and private storage. The authenticated active supervisor currently assigned to a team may decide its latest pending version. A return requires 1-2000 characters of trimmed feedback; approval may include optional feedback. Students, team leaders, coordinators, other supervisors, and former supervisors cannot approve or return submissions. In this single-programme pilot, coordinators retain global read oversight but cannot write reviews.
+
+| Request | Permission | Behavior |
+|---|---|---|
+| `GET /supervisor/submissions/pending` | Active supervisor | Lists only latest pending versions from currently assigned teams, ordered by submission time and version ID. |
+| `POST /teams/{team_id}/milestones/{milestone_id}/submissions/{version_id}/review` | Current assigned supervisor | Records one immutable `approved` or `returned` review for the latest pending version. |
+| `GET /teams/{team_id}/milestones/{milestone_id}/submissions/{version_id}/review` | Authorized team reader | Reads the immutable feedback for that version; absent reviews return `404`. |
+| `POST /teams/{team_id}/milestones/{milestone_id}/submissions/revisions/link` | Active student team member | Appends a validated HTTPS link as a new version, only after the latest version is returned. |
+| `POST /teams/{team_id}/milestones/{milestone_id}/submissions/revisions/file` | Active student team member | Appends a validated private file as a new version, only after the latest version is returned. |
+
+A pending version cannot be replaced. A returned version can receive one new link or file version, which returns the thread to `pending_review`; each version retains its own review status and feedback. Approval is final. Every version keeps its own submission timestamp, deadline snapshot, and late flag. Review and revision operations lock the submission thread before changing its state, and PostgreSQL prevents edits or deletion of review and version history. Existing secure download authorization applies to revised files as well.
 
 ### Configuration
 
@@ -210,9 +224,10 @@ For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting U
 - `supervisor_assignments` stores only the current assignment. Its team key allows at most one current supervisor; absence of a row means unassigned. Reassignment updates that row, and the domain function verifies that the referenced user has the supervisor system role. This phase does not keep assignment history.
 - `milestones` stores a UUID, owning team, trimmed name, optional description, required timezone-aware deadline, and creation/update timestamps. A team/deadline index supports ordered reads. The deadline status is derived at response time and is not stored.
 - `milestone_submissions` stores at most one initial submission thread per milestone, with `pending_review` as its initial state.
-- `submission_versions` stores version number, authenticated submitter, trusted UTC submission time, deadline snapshot, computed late flag, and exactly one HTTPS link or private-file metadata source. PostgreSQL prevents updates and deletes to accepted versions. Phase 5A accepts version 1 only; review/return/revision APIs are not implemented.
+- `submission_versions` stores version number, authenticated submitter, trusted UTC submission time, deadline snapshot, computed late flag, and exactly one HTTPS link or private-file metadata source. PostgreSQL prevents updates and deletes to accepted versions. Phase 5A accepts the first version; Phase 5B adds version-scoped review and returned-version revisions.
+- `supervisor_reviews` stores one immutable approval or return decision, its current supervisor reviewer, optional/required feedback, and UTC review timestamp for each version. `milestone_submissions.review_status` tracks the thread's current state; API history derives each version's status from its own review.
 
-Review, return, revision, and approval actions remain outside Phase 5A.
+Phase 5B appends immutable review records and new submission versions without changing prior version rows.
 
 ### Tests and code checks
 
@@ -222,7 +237,9 @@ Run these commands from `src/backend` in PowerShell:
 
 ```powershell
 $env:GRADTRACK_DATABASE_URL = "postgresql+psycopg://gradtrack:gradtrack@localhost:5432/gradtrack_test"
+.\.venv\Scripts\python.exe -m pytest -m "not postgresql"
 .\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m pip check
 .\.venv\Scripts\ruff.exe check app tests migrations
 .\.venv\Scripts\ruff.exe format --check app tests migrations
 ```
@@ -231,7 +248,9 @@ On macOS or Linux, use:
 
 ```shell
 export GRADTRACK_DATABASE_URL="postgresql+psycopg://gradtrack:gradtrack@localhost:5432/gradtrack_test"
+.venv/bin/python -m pytest -m "not postgresql"
 .venv/bin/python -m pytest
+.venv/bin/python -m pip check
 .venv/bin/ruff check app tests migrations
 .venv/bin/ruff format --check app tests migrations
 ```
