@@ -2,7 +2,7 @@
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -30,6 +30,7 @@ class Settings:
     debug: bool = False
     log_level: int = logging.INFO
     database_url: str = _DEFAULT_DATABASE_URL
+    auth_secret_key: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -72,9 +73,16 @@ class Settings:
                 "include a database name"
             )
 
+        auth_secret_key = os.getenv("GRADTRACK_AUTH_SECRET_KEY")
+        if auth_secret_key is not None:
+            auth_secret_key = auth_secret_key.strip()
+            if not auth_secret_key:
+                raise ValueError("GRADTRACK_AUTH_SECRET_KEY must not be empty")
+
         return cls(
             app_name=app_name,
             debug=debug,
             log_level=log_level,
             database_url=database_url,
+            auth_secret_key=auth_secret_key,
         )
