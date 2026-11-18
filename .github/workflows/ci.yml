@@ -47,6 +47,7 @@ jobs:
           --health-retries 5
     env:
       GRADTRACK_DATABASE_URL: postgresql+psycopg://gradtrack_test:gradtrack_test@localhost:5432/gradtrack_test
+      GRADTRACK_AUTH_SECRET_KEY: synthetic-only-gradtrack-auth-test-key-32-bytes-minimum
     defaults:
       run:
         working-directory: src/backend
