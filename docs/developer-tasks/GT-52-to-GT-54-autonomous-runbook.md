@@ -131,6 +131,7 @@ docs(GT-52): document database setup
 7. Test-only seed/fixture path for supervisor/coordinator accounts; **no public privileged-role creation or elevation endpoint**.
 8. Appropriate validation, duplicate handling, disabled user behavior, safe error messages and OpenAPI schemas.
 9. Keep `/health` available without authentication.
+10. Password policy: require at least 16 characters and accept at least 64; the current API limit is 128 Unicode characters. Permit Unicode, spaces, and passphrases without character-class combinations. Do not trim, normalize, or truncate passwords. Use a reliable offline compromised-password blocklist only if already available without unnecessary complexity; none is present in the current backend, so do not add a dependency for GT-53.
 
 ### Explicitly out of scope
 
@@ -140,6 +141,7 @@ Google OAuth/OIDC, email OTP, university ID OCR, refresh-token service, password
 
 - Valid registration persists a **hash**, not plaintext.
 - Invalid/duplicate email and weak/invalid input rejected.
+- Password policy rejects 15 characters and accepts 16; accepts longer Unicode/space-containing passphrases and verifies them without trimming; existing invalid-password cases remain rejected.
 - Login succeeds for valid student; `/auth/me` returns permitted fields only.
 - Wrong password/unknown user does not leak credentials or hashes.
 - Missing, invalid, tampered and expired JWT denied.
@@ -185,9 +187,9 @@ docs(GT-53): document authentication API
 
 3. **GT-17 Supervisor Assignment**
    - Track team's currently assigned supervisor.
-   - **Students and team leaders must not assign their own supervisor.**
-   - If the Master Plan/Jira explicitly establishes programme-coordinator assignment permission, implement and test that approved path.
-   - If assignment/reassignment authority is ambiguous, **do not improvise it**. Finish only independent team operations, note missing GT-17 and stop this phase as partial.
+   - Only the authenticated Programme Coordinator may assign or reassign a team's supervisor. Students, team leaders, and supervisors cannot assign or change a supervisor.
+   - The selected user must have the `supervisor` system role. Enforce authorization on the server and test both allowed and forbidden actions.
+   - The current schema has no Programme entity or team-to-programme relationship. For the single-programme pilot, coordinator assignment scope is temporarily global across teams; document this limitation in API/setup documentation. If programme relationships exist when this task is implemented, constrain coordinator actions to their authorized programme.
    - Assigned supervisors see only their assigned teams; others cannot enumerate or access them.
 
 4. HTTP contracts should remain small and testable. No React/Flutter screens, milestones, submissions, approvals or file uploads in this phase.
@@ -199,7 +201,8 @@ docs(GT-53): document authentication API
 - Membership/assignment cross-team authorization denial.
 - Listing only permitted teams.
 - Unauthorized student supervisor-assignment attempt rejected.
-- Coordinator assignment when formally authorized.
+- Student, team-leader, and supervisor assignment/reassignment attempts rejected; authenticated coordinator assignment/reassignment succeeds only when the selected user has the supervisor system role.
+- If Programme entities/relationships are present, coordinator assignment is limited to their authorized programme. For the current single-programme schema, document and test the temporary global coordinator scope.
 - Assigned vs unassigned vs wrong-supervisor read access.
 - Database rollback/atomicity, plus Phase 0–2 regressions.
 
