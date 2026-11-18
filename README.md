@@ -1,9 +1,9 @@
 # GradTrack
 A full-stack graduation project management platform featuring a React web dashboard, Flutter mobile companion, collaborative task management, milestone tracking, supervisor reviews, analytics, and smart notifications.
 
-## Backend setup — Phases 0–3
+## Backend setup — Phases 0–4
 
-The FastAPI backend provides process and database health endpoints, a migration-managed PostgreSQL persistence foundation, manual student registration with Argon2id password hashing and short-lived JWT bearer access tokens, and team creation, membership, and supervisor assignment APIs.
+The FastAPI backend provides process and database health endpoints, a migration-managed PostgreSQL persistence foundation, manual student registration with Argon2id password hashing and short-lived JWT bearer access tokens, team creation and membership, supervisor assignment, and team-scoped milestone and deadline APIs.
 
 Use Python 3.12 or newer. From the repository root, create the backend virtual environment and move into the backend directory:
 
@@ -103,6 +103,35 @@ Team data is restricted server-side. `GET /teams` lists only a student's member 
 
 The current schema has no `Programme` entity or team-to-programme relationship. For the single-programme pilot, coordinator assignment and team visibility are temporarily global across teams. Add programme-specific coordinator scoping when the schema supports multiple programmes. Students, team leaders, and supervisors cannot assign or change supervisor assignments.
 
+### Milestone and deadline APIs
+
+Milestones belong to a team in the current single-programme MVP. Team members, the team's currently assigned supervisor, and a coordinator can read them. A coordinator or the currently assigned supervisor can create a milestone and change its deadline; students and team leaders cannot write milestones. A former supervisor loses access after reassignment. Coordinator visibility and writes are temporarily global because the current schema has no `Programme` entity; scope coordinator access when programme membership is introduced.
+
+| Request | Permission | Behavior |
+|---|---|---|
+| `GET /teams/{team_id}/milestones` | Team member, current supervisor, or coordinator | Returns an array ordered by UTC deadline and then milestone ID. An empty team returns `[]`; clients should show a friendly empty state. |
+| `GET /teams/{team_id}/milestones/{milestone_id}` | Same team-scoped readers | Reads one milestone only through its owning team. Cross-team and mismatched IDs return `404`. |
+| `POST /teams/{team_id}/milestones` | Coordinator or currently assigned supervisor | Creates a team-owned milestone with a nonblank name, optional description, and offset-aware `due_at`. |
+| `PATCH /teams/{team_id}/milestones/{milestone_id}` | Coordinator or currently assigned supervisor | Changes only the deadline; the new value is saved and returned. Past deadlines are permitted. |
+
+Example request bodies:
+
+```json
+{
+  "name": "SRS",
+  "description": "Submit the software requirements specification.",
+  "due_at": "2026-12-01T17:00:00+02:00"
+}
+```
+
+```json
+{
+  "due_at": "2026-12-03T15:00:00Z"
+}
+```
+
+`due_at` must include a timezone offset. The API stores and returns it in UTC. Each response includes a derived `deadline_status`: `scheduled` when more than seven days remain, `due_soon` when the deadline is in the next seven days or is exactly at the current instant, and `overdue` only after the deadline has passed. This planning state is not persisted and is separate from any future submission or review status. Phase 5 must snapshot the applicable deadline on each accepted submission version so later deadline edits cannot change its saved late/on-time result; submission history is not implemented here.
+
 ### Configuration
 
 Configuration is read from environment variables. Defaults are safe for local development: debug mode is off and logging is set to `INFO`.
@@ -117,14 +146,15 @@ Configuration is read from environment variables. Defaults are safe for local de
 
 For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting Uvicorn to enable local debug mode. Do not commit `.env` files or real database credentials.
 
-### Phase 1 schema
+### Phases 1–4 schema
 
 - `users` stores UUID keys, lowercase/trimmed unique email, password-hash storage, a nonempty display name, active state, and timezone-aware timestamps. Allowed system roles are `student`, `supervisor`, and `coordinator`.
 - `teams` stores UUID keys and nonblank names. A team can be unassigned.
 - `team_memberships` references a user and team, permits `member` or `leader` as a team-scoped role, and prevents duplicate membership for the same user/team pair.
 - `supervisor_assignments` stores only the current assignment. Its team key allows at most one current supervisor; absence of a row means unassigned. Reassignment updates that row, and the domain function verifies that the referenced user has the supervisor system role. This phase does not keep assignment history.
+- `milestones` stores a UUID, owning team, trimmed name, optional description, required timezone-aware deadline, and creation/update timestamps. A team/deadline index supports ordered reads. The deadline status is derived at response time and is not stored.
 
-No milestone, submission, authentication endpoint, or other conceptual entity is created in this phase.
+Submission versions, late flags, reviews, approval states, and other Phase 5 workflow entities are not implemented in this phase.
 
 ### Tests and code checks
 
@@ -148,6 +178,6 @@ export GRADTRACK_DATABASE_URL="postgresql+psycopg://gradtrack:gradtrack@localhos
 .venv/bin/ruff format --check app tests migrations
 ```
 
-The auth unit tests run without PostgreSQL. The full suite, including registration, login, token, disabled-user, authorization, database-constraint, and migration integration tests, requires the dedicated `gradtrack_test` PostgreSQL database. CI uses a separate ephemeral PostgreSQL 16 service and a synthetic auth secret.
+The auth and milestone-rule unit tests run without PostgreSQL. The full suite, including registration, login, token, disabled-user, team and milestone authorization, timezone persistence, database-constraint, and migration integration tests, requires the dedicated `gradtrack_test` PostgreSQL database. CI uses a separate ephemeral PostgreSQL 16 service and a synthetic auth secret.
 
 GitHub Actions runs the backend tests and lint/format checks on pushes and pull requests targeting `develop` or `main`, using an ephemeral PostgreSQL 16 service and retaining repository structure validation.
