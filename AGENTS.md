@@ -1,4 +1,4 @@
-# agent.md — GradTrack Agent Operating Rules
+# AGENTS.md — GradTrack Agent Operating Rules
 
 > **Applies to:** Codex, Antigravity CLI, and other coding agents working in this repository.  
 > **Core rule:** You are implementing an already-approved product specification. You are not designing a new product.

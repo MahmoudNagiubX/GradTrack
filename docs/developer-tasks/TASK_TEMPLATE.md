@@ -182,7 +182,7 @@ The agent must inspect the repository and use its actual scripts/commands. Do no
 
 ## 12. Implementation Constraints
 
-- Follow root `agent.md` and the approved Master Plan.
+- Follow root `AGENTS.md` and the approved Master Plan.
 - Follow existing repository patterns and dependencies.
 - Keep the change limited to this task.
 - Do not perform unrelated refactoring.

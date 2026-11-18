@@ -37,7 +37,7 @@ test/GT-24-supervisor-approval
 3. If unrelated or uncommitted user changes exist, do not overwrite, discard, or stage them. Ask the user how to proceed.
 4. Fetch the latest remote state and update local `develop` safely.
 5. Create the task branch from `develop`.
-6. Read root `agent.md`, the Master Plan, the Jira issue, and the task specification.
+6. Read root `AGENTS.md`, the Master Plan, the Jira issue, and the task specification.
 7. Inspect nearby code and tests before changing implementation.
 
 Do not run destructive Git commands or reset a user's working tree to make it clean.
@@ -153,4 +153,4 @@ Use the actual Jira issue key assigned to the work. The examples do not create J
 - AI-assisted work must still be understood, checked, and honestly represented by the assigned developer.
 
 ---
-*This document supplements the root `agent.md` and the Master Plan. If a conflict appears, stop and ask the Product Owner rather than silently choosing a policy.*
+*This document supplements the root `AGENTS.md` and the Master Plan. If a conflict appears, stop and ask the Product Owner rather than silently choosing a policy.*
