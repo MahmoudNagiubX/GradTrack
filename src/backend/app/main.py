@@ -14,6 +14,7 @@ from app.auth import router as auth_router
 from app.config import Settings
 from app.database import check_database_connection, engine
 from app.milestones import router as milestones_router
+from app.submissions import router as submissions_router
 from app.teams import router as teams_router
 
 settings = Settings.from_environment()
@@ -39,14 +40,18 @@ app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(teams_router)
 app.include_router(milestones_router)
+app.include_router(submissions_router)
 
 
 @app.exception_handler(RequestValidationError)
 async def handle_request_validation_error(
     request: Request, error: RequestValidationError
 ) -> JSONResponse:
-    """Avoid echoing submitted credentials in auth validation responses."""
-    if not request.url.path.startswith("/auth/"):
+    """Avoid echoing credentials or submitted links in validation responses."""
+    if (
+        not request.url.path.startswith("/auth/")
+        and "/submissions" not in request.url.path
+    ):
         return await request_validation_exception_handler(request, error)
 
     sanitized_errors = [

@@ -156,6 +156,41 @@ class MilestoneResponse(BaseModel):
     updated_at: datetime
 
 
+class LinkSubmissionRequest(BaseModel):
+    """A single externally hosted HTTPS submission link."""
+
+    model_config = {"extra": "forbid"}
+
+    url: Annotated[str, StringConstraints(min_length=8, max_length=2048)]
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        from app.submission_storage import validate_submission_url
+
+        return validate_submission_url(value)
+
+
+class SubmissionVersionResponse(BaseModel):
+    """Public metadata for one immutable submission version."""
+
+    id: UUID
+    submission_id: UUID
+    milestone_id: UUID
+    team_id: UUID
+    version_number: int
+    submitted_by: UUID
+    submitted_at: datetime
+    deadline_at_submission: datetime
+    is_late: bool
+    source_type: Literal["file", "link"]
+    original_filename: str | None
+    file_size_bytes: int | None
+    media_type: str | None
+    url: str | None
+    review_status: Literal["pending_review"]
+
+
 def _normalize_aware_utc(value: datetime) -> datetime:
     """Require an explicit timezone offset and normalize the instant to UTC."""
     if value.tzinfo is None or value.utcoffset() is None:

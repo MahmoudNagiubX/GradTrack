@@ -11,6 +11,7 @@ def test_settings_use_safe_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "GRADTRACK_LOG_LEVEL",
         "GRADTRACK_DATABASE_URL",
         "GRADTRACK_AUTH_SECRET_KEY",
+        "GRADTRACK_PRIVATE_UPLOAD_DIR",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -23,6 +24,7 @@ def test_settings_use_safe_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "postgresql+psycopg://gradtrack:gradtrack@127.0.0.1:5432/gradtrack_dev"
     )
     assert settings.auth_secret_key is None
+    assert settings.private_upload_dir is None
 
 
 def test_settings_read_environment_values(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,6 +35,7 @@ def test_settings_read_environment_values(monkeypatch: pytest.MonkeyPatch) -> No
         "GRADTRACK_AUTH_SECRET_KEY",
         "synthetic-only-gradtrack-auth-test-key-32-bytes-minimum",
     )
+    monkeypatch.setenv("GRADTRACK_PRIVATE_UPLOAD_DIR", r"C:\gradtrack-private")
 
     settings = Settings.from_environment()
 
@@ -42,6 +45,7 @@ def test_settings_read_environment_values(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.auth_secret_key == (
         "synthetic-only-gradtrack-auth-test-key-32-bytes-minimum"
     )
+    assert settings.private_upload_dir == r"C:\gradtrack-private"
 
 
 @pytest.mark.parametrize(
@@ -82,3 +86,12 @@ def test_settings_repr_does_not_expose_auth_signing_key(
     monkeypatch.setenv("GRADTRACK_AUTH_SECRET_KEY", secret)
 
     assert secret not in repr(Settings.from_environment())
+
+
+def test_settings_repr_does_not_expose_private_upload_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_path = r"C:\Users\synthetic\private-uploads"
+    monkeypatch.setenv("GRADTRACK_PRIVATE_UPLOAD_DIR", private_path)
+
+    assert private_path not in repr(Settings.from_environment())

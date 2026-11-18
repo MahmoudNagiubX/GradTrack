@@ -31,6 +31,7 @@ class Settings:
     log_level: int = logging.INFO
     database_url: str = _DEFAULT_DATABASE_URL
     auth_secret_key: str | None = field(default=None, repr=False)
+    private_upload_dir: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -79,10 +80,13 @@ class Settings:
             if not auth_secret_key:
                 raise ValueError("GRADTRACK_AUTH_SECRET_KEY must not be empty")
 
+        private_upload_dir = os.getenv("GRADTRACK_PRIVATE_UPLOAD_DIR") or None
+
         return cls(
             app_name=app_name,
             debug=debug,
             log_level=log_level,
             database_url=database_url,
             auth_secret_key=auth_secret_key,
+            private_upload_dir=private_upload_dir,
         )

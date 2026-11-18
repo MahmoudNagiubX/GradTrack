@@ -30,6 +30,7 @@ pydantic==2.14.3
 pydantic-core==2.50.4
 Pygments==2.21.0
 PyJWT==2.15.1
+python-multipart==0.0.34
 pytest==9.2.0
 ruff==0.16.8
 SQLAlchemy==2.0.58

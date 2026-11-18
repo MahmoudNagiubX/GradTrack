@@ -32,6 +32,8 @@ def test_empty_schema_can_upgrade_downgrade_and_upgrade_again(
                 "team_memberships",
                 "supervisor_assignments",
                 "milestones",
+                "milestone_submissions",
+                "submission_versions",
             }
             assert expected_tables <= set(inspect(connection).get_table_names())
 
@@ -58,6 +60,7 @@ def test_phase3_data_survives_milestone_migration_and_downgrade(
     student_id = uuid4()
     supervisor_id = uuid4()
     team_id = uuid4()
+    milestone_id = uuid4()
     membership_id = uuid4()
 
     with postgres_engine.begin() as connection:
@@ -116,6 +119,17 @@ def test_phase3_data_survives_milestone_migration_and_downgrade(
                 {"team_id": team_id, "supervisor_id": supervisor_id},
             )
 
+            command.upgrade(config, "gt18_19_0002")
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO milestones (id, team_id, name, due_at)
+                    VALUES (:milestone_id, :team_id, 'Phase 4 milestone',
+                            '2026-12-01T15:00:00Z')
+                    """
+                ),
+                {"milestone_id": milestone_id, "team_id": team_id},
+            )
             command.upgrade(config, "head")
             due_at_column = next(
                 column
@@ -142,6 +156,13 @@ def test_phase3_data_survives_milestone_migration_and_downgrade(
                 connection.scalar(
                     text("SELECT count(*) FROM teams WHERE id = :team_id"),
                     {"team_id": team_id},
+                )
+                == 1
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM milestones WHERE id = :milestone_id"),
+                    {"milestone_id": milestone_id},
                 )
                 == 1
             )
@@ -194,6 +215,8 @@ def test_phase3_data_survives_milestone_migration_and_downgrade(
 
             command.downgrade(config, "gt52_0001")
             assert "milestones" not in inspect(connection).get_table_names()
+            assert "milestone_submissions" not in inspect(connection).get_table_names()
+            assert "submission_versions" not in inspect(connection).get_table_names()
             assert (
                 connection.scalar(
                     text("SELECT count(*) FROM users WHERE id = :user_id"),
@@ -214,6 +237,8 @@ def test_phase3_data_survives_milestone_migration_and_downgrade(
 
             command.upgrade(config, "head")
             assert "milestones" in inspect(connection).get_table_names()
+            assert "milestone_submissions" in inspect(connection).get_table_names()
+            assert "submission_versions" in inspect(connection).get_table_names()
             transaction.rollback()
     finally:
         with postgres_engine.begin() as connection:
