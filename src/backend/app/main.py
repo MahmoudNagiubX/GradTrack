@@ -14,6 +14,7 @@ from app.auth import router as auth_router
 from app.config import Settings
 from app.database import check_database_connection, engine
 from app.milestones import router as milestones_router
+from app.notifications import router as notifications_router
 from app.progress import router as progress_router
 from app.reviews import pending_router as pending_reviews_router
 from app.reviews import review_router as submission_reviews_router
@@ -49,6 +50,7 @@ app.include_router(pending_reviews_router)
 app.include_router(submission_reviews_router)
 app.include_router(tasks_router)
 app.include_router(progress_router)
+app.include_router(notifications_router)
 
 
 @app.exception_handler(RequestValidationError)

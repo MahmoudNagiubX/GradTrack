@@ -539,3 +539,36 @@ class TeamProgressSummaryResponse(BaseModel):
     milestones: MilestoneProgressCounts
     late_submissions: int
     upcoming: list[UpcomingDeadlineItem]
+
+
+# ---------------------------------------------------------------------------
+# Phase 7B: In-App Deadline Reminders Schemas (GT-30)
+# ---------------------------------------------------------------------------
+
+ReminderKind = Literal[
+    "task_due_soon",
+    "task_overdue",
+    "milestone_due_soon",
+    "milestone_overdue",
+]
+
+
+class ReminderItemResponse(BaseModel):
+    """Derived in-app reminder for an actionable task or milestone deadline."""
+
+    id: UUID
+    kind: ReminderKind
+    source_id: UUID
+    team_id: UUID
+    title: str
+    due_at: datetime
+    is_read: bool
+    read_at: datetime | None = None
+
+
+class MarkReminderReadResponse(BaseModel):
+    """Receipt response when marking an active reminder as read."""
+
+    status: str = "ok"
+    reminder_id: UUID
+    read_at: datetime
