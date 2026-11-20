@@ -1,7 +1,7 @@
 """Request and response schemas for authentication and team APIs."""
 
 from datetime import datetime, timezone
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Union
 from uuid import UUID
 
 from pydantic import (
@@ -435,3 +435,107 @@ def _normalize_aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("due_at must be timezone-aware and include an offset")
     return value.astimezone(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7A: Timeline / Calendar Data & Progress Dashboards
+# ---------------------------------------------------------------------------
+
+
+class CalendarTaskItem(BaseModel):
+    """Calendar projection for a team task with an offset-aware due date."""
+
+    kind: Literal["task"] = "task"
+    id: UUID
+    team_id: UUID
+    title: str
+    due_at: datetime
+    status: Literal["todo", "in_progress", "done"]
+    priority: Literal["low", "medium", "high"]
+    assignee_id: UUID
+    milestone_id: UUID | None = None
+    parent_task_id: UUID | None = None
+
+
+class CalendarMilestoneItem(BaseModel):
+    """Calendar projection for a team milestone planning deadline."""
+
+    kind: Literal["milestone"] = "milestone"
+    id: UUID
+    team_id: UUID
+    title: str
+    due_at: datetime
+    deadline_status: Literal["scheduled", "due_soon", "overdue"]
+    review_status: Literal["not_submitted", "pending_review", "returned", "approved"]
+
+
+CalendarItemResponse = Annotated[
+    Union[CalendarTaskItem, CalendarMilestoneItem],
+    Field(discriminator="kind"),
+]
+
+
+class TaskProgressCounts(BaseModel):
+    """Derived progress metrics across a team's tasks."""
+
+    total: int
+    todo: int
+    in_progress: int
+    done: int
+    overdue: int
+
+
+class AssigneeTaskProgress(BaseModel):
+    """Per-member task breakdown within a team."""
+
+    assignee_id: UUID
+    assignee_name: str
+    total: int
+    todo: int
+    in_progress: int
+    done: int
+    overdue: int
+
+
+class MilestoneProgressCounts(BaseModel):
+    """Derived planning deadline and review states for team milestones."""
+
+    total: int
+    scheduled: int
+    due_soon: int
+    overdue: int
+    not_submitted: int
+    pending_review: int
+    returned: int
+    approved: int
+
+
+class UpcomingDeadlineItem(BaseModel):
+    """A nearest future task or milestone deadline."""
+
+    kind: Literal["task", "milestone"]
+    id: UUID
+    title: str
+    due_at: datetime
+    # Task-specific (None for milestone)
+    status: Literal["todo", "in_progress", "done"] | None = None
+    priority: Literal["low", "medium", "high"] | None = None
+    assignee_id: UUID | None = None
+    # Milestone-specific (None for task)
+    deadline_status: Literal["scheduled", "due_soon", "overdue"] | None = None
+    review_status: (
+        Literal["not_submitted", "pending_review", "returned", "approved"] | None
+    ) = None
+
+
+class TeamProgressSummaryResponse(BaseModel):
+    """Derived progress summary for an authorized team."""
+
+    team_id: UUID
+    team_name: str
+    as_of: datetime
+    tasks: TaskProgressCounts
+    tasks_by_assignee: list[AssigneeTaskProgress]
+    milestones: MilestoneProgressCounts
+    late_submissions: int
+    upcoming: list[UpcomingDeadlineItem]
