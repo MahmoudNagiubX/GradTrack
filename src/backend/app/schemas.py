@@ -239,6 +239,160 @@ class SupervisorReviewResponse(BaseModel):
     reviewed_at: datetime
 
 
+class TaskCreateRequest(BaseModel):
+    """Client fields accepted when creating a team task."""
+
+    model_config = {"extra": "forbid"}
+
+    title: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    ]
+    description: str | None = None
+    assignee_id: UUID
+    priority: Literal["low", "medium", "high"] = "medium"
+    due_at: datetime | None = None
+    estimated_minutes: Annotated[int | None, Field(ge=1, le=525600)] = None
+    milestone_id: UUID | None = None
+    parent_task_id: UUID | None = None
+
+    @field_validator("due_at")
+    @classmethod
+    def normalize_due_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return _normalize_aware_utc(value)
+
+
+class TaskUpdateRequest(BaseModel):
+    """Client fields accepted when updating task metadata or assignment."""
+
+    model_config = {"extra": "forbid"}
+
+    title: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+        ]
+        | None
+    ) = None
+    description: str | None = None
+    assignee_id: UUID | None = None
+    priority: Literal["low", "medium", "high"] | None = None
+    due_at: datetime | None = None
+    estimated_minutes: Annotated[int | None, Field(ge=1, le=525600)] = None
+    milestone_id: UUID | None = None
+    parent_task_id: UUID | None = None
+
+    @field_validator("due_at")
+    @classmethod
+    def normalize_due_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return _normalize_aware_utc(value)
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    """Status change requested by the assignee or team leader."""
+
+    model_config = {"extra": "forbid"}
+
+    status: Literal["todo", "in_progress", "done"]
+
+
+class TaskResponse(BaseModel):
+    """Public representation of a team task."""
+
+    id: UUID
+    team_id: UUID
+    title: str
+    description: str | None
+    status: Literal["todo", "in_progress", "done"]
+    priority: Literal["low", "medium", "high"]
+    created_by: UUID
+    assignee_id: UUID
+    updated_by: UUID
+    completed_by: UUID | None
+    due_at: datetime | None
+    estimated_minutes: int | None
+    milestone_id: UUID | None
+    parent_task_id: UUID | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskChecklistItemCreateRequest(BaseModel):
+    """Client fields accepted when adding a checklist item."""
+
+    model_config = {"extra": "forbid"}
+
+    item_text: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+    ]
+
+
+class TaskChecklistItemUpdateRequest(BaseModel):
+    """Updates to checklist item text or completion status."""
+
+    model_config = {"extra": "forbid"}
+
+    is_done: bool | None = None
+    item_text: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+        ]
+        | None
+    ) = None
+
+
+class TaskChecklistItemResponse(BaseModel):
+    """Representation of one checklist item."""
+
+    id: UUID
+    task_id: UUID
+    item_text: str
+    is_done: bool
+    created_by: UUID
+    completed_by: UUID | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskDetailResponse(TaskResponse):
+    """Detailed task representation including checklist items and child subtasks."""
+
+    checklist_items: list[TaskChecklistItemResponse]
+    subtasks: list[TaskResponse]
+
+
+class TaskActivityResponse(BaseModel):
+    """One immutable activity entry for a task."""
+
+    id: UUID
+    task_id: UUID
+    actor_id: UUID
+    actor_name: str
+    event_type: Literal[
+        "created",
+        "assigned",
+        "reassigned",
+        "status_changed",
+        "reopened",
+        "completed",
+        "updated",
+        "checklist_item_added",
+        "checklist_item_updated",
+    ]
+    old_value: str | None
+    new_value: str | None
+    details: str | None
+    created_at: datetime
+
+
 def _normalize_aware_utc(value: datetime) -> datetime:
     """Require an explicit timezone offset and normalize the instant to UTC."""
     if value.tzinfo is None or value.utcoffset() is None:

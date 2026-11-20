@@ -17,6 +17,7 @@ from app.milestones import router as milestones_router
 from app.reviews import pending_router as pending_reviews_router
 from app.reviews import review_router as submission_reviews_router
 from app.submissions import router as submissions_router
+from app.tasks import router as tasks_router
 from app.teams import router as teams_router
 
 settings = Settings.from_environment()
@@ -45,6 +46,7 @@ app.include_router(milestones_router)
 app.include_router(submissions_router)
 app.include_router(pending_reviews_router)
 app.include_router(submission_reviews_router)
+app.include_router(tasks_router)
 
 
 @app.exception_handler(RequestValidationError)
