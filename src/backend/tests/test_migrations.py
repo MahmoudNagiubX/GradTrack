@@ -639,8 +639,13 @@ def test_phase6a_data_survives_collaboration_migration_and_downgrade(
                 == 1
             )
 
-            # 4. Downgrade back to gt26_27_0005
-            # Disable trigger to clean up test activity before downgrade
+            # 4. Downgrade safety: fails safely while collaboration activity exists
+            with pytest.raises(
+                RuntimeError, match="Cannot downgrade migration gt28_0006"
+            ):
+                command.downgrade(config, "gt26_27_0005")
+
+            # Clean up test activity to test clean downgrade path
             connection.exec_driver_sql(
                 "ALTER TABLE task_activities DISABLE TRIGGER "
                 "trg_task_activities_immutable"

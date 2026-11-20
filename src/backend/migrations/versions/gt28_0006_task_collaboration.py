@@ -117,6 +117,20 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove task_attachments, task_comments and restore activity constraints."""
+    bind = op.get_bind()
+    count = bind.execute(
+        sa.text(
+            "SELECT count(*) FROM task_activities WHERE event_type IN "
+            "('comment_added', 'attachment_uploaded')"
+        )
+    ).scalar()
+    if count:
+        raise RuntimeError(
+            f"Cannot downgrade migration gt28_0006: {count} immutable task activity "
+            "entries exist with collaboration event types ('comment_added', "
+            "'attachment_uploaded')."
+        )
+
     op.drop_index("ix_task_attachments_task_created", table_name="task_attachments")
     op.drop_table("task_attachments")
     op.drop_index("ix_task_comments_task_created", table_name="task_comments")
