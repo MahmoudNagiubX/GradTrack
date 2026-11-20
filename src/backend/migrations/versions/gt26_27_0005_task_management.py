@@ -172,6 +172,12 @@ def upgrade() -> None:
     op.create_table(
         "task_activities",
         sa.Column("id", sa.Uuid(as_uuid=True), nullable=False),
+        sa.Column(
+            "sequence_id",
+            sa.BigInteger(),
+            sa.Identity(start=1),
+            nullable=False,
+        ),
         sa.Column("task_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column("actor_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column("event_type", sa.String(length=32), nullable=False),
@@ -202,6 +208,12 @@ def upgrade() -> None:
             ["actor_id"], ["users.id"], name="fk_task_activities_actor"
         ),
         sa.PrimaryKeyConstraint("id", name="pk_task_activities"),
+        sa.UniqueConstraint("sequence_id", name="uq_task_activities_sequence_id"),
+    )
+    op.create_index(
+        "ix_task_activities_task_seq",
+        "task_activities",
+        ["task_id", "sequence_id"],
     )
     op.create_index(
         "ix_task_activities_task_created",
@@ -235,6 +247,7 @@ def downgrade() -> None:
     """Remove tasks, checklist items, and task activities."""
     op.execute("DROP TRIGGER trg_task_activities_immutable ON task_activities")
     op.execute("DROP FUNCTION reject_task_activity_mutation()")
+    op.drop_index("ix_task_activities_task_seq", table_name="task_activities")
     op.drop_index("ix_task_activities_task_created", table_name="task_activities")
     op.drop_table("task_activities")
     op.drop_index("ix_task_checklist_items_task_id", table_name="task_checklist_items")

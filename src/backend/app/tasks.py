@@ -534,7 +534,7 @@ def get_task_activity(
         )
         .join(User, User.id == TaskActivity.actor_id)
         .where(TaskActivity.task_id == task_id)
-        .order_by(TaskActivity.created_at.asc(), TaskActivity.id.asc())
+        .order_by(TaskActivity.sequence_id.asc())
     ).all()
 
     return [

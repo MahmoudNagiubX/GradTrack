@@ -251,10 +251,9 @@ def test_task_creation_permissions(
     team = _new_team(db_session, leader)
     _add_team_member(db_session, team, member)
     assign_supervisor(
+        session=db_session,
         team_id=team.id,
         supervisor_id=supervisor.id,
-        acting_user=coordinator,
-        session=db_session,
     )
 
     payload = {"title": "Task A", "assignee_id": str(member.id)}
@@ -681,6 +680,7 @@ def test_task_filtering_and_timezone_handling(
         f"/teams/{team.id}/tasks?status=in_progress",
         headers=_headers(leader),
     )
+    assert res.status_code == 200
     assert len(res.json()) == 1
     assert res.json()[0]["id"] == t1["id"]
 
@@ -689,6 +689,7 @@ def test_task_filtering_and_timezone_handling(
         f"/teams/{team.id}/tasks?assignee_id={member2.id}",
         headers=_headers(leader),
     )
+    assert res.status_code == 200
     assert len(res.json()) == 1
     assert res.json()[0]["id"] == t2["id"]
 
@@ -697,6 +698,7 @@ def test_task_filtering_and_timezone_handling(
         f"/teams/{team.id}/tasks?priority=high",
         headers=_headers(leader),
     )
+    assert res.status_code == 200
     assert len(res.json()) == 1
     assert res.json()[0]["id"] == t1["id"]
 
@@ -705,23 +707,28 @@ def test_task_filtering_and_timezone_handling(
         f"/teams/{team.id}/tasks?milestone_id={milestone.id}",
         headers=_headers(leader),
     )
+    assert res.status_code == 200
     assert len(res.json()) == 1
     assert res.json()[0]["id"] == t1["id"]
 
     # Filter by due_before (before 2026-12-15 UTC)
     cutoff = datetime(2026, 12, 15, 0, 0, tzinfo=timezone.utc).isoformat()
     res = api_client.get(
-        f"/teams/{team.id}/tasks?due_before={cutoff}",
+        f"/teams/{team.id}/tasks",
+        params={"due_before": cutoff},
         headers=_headers(leader),
     )
-    assert len(res.json()) == 1
-    assert res.json()[0]["id"] == t1["id"]
+    assert res.status_code == 200
+    tasks_before = res.json()
+    assert len(tasks_before) == 1
+    assert tasks_before[0]["id"] == t1["id"]
 
     # Filter with no matches returns empty list
     res = api_client.get(
         f"/teams/{team.id}/tasks?status=done",
         headers=_headers(leader),
     )
+    assert res.status_code == 200
     assert res.json() == []
 
 
@@ -737,10 +744,9 @@ def test_cross_team_isolation_and_supervisor_read_only(
     team1 = _new_team(db_session, leader1, "Team 1")
     _add_team_member(db_session, team1, member1)
     assign_supervisor(
+        session=db_session,
         team_id=team1.id,
         supervisor_id=supervisor.id,
-        acting_user=coordinator,
-        session=db_session,
     )
 
     t1 = api_client.post(
@@ -805,10 +811,10 @@ def test_database_constraints_and_activity_immutability(
         assignee_id=member.id,
         updated_by=leader.id,
     )
-    db_session.add(untrimmed_task)
     with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
+        with db_session.begin_nested():
+            db_session.add(untrimmed_task)
+            db_session.flush()
 
     # 2. Direct insert violating completion consistency
     inconsistent_task = Task(
@@ -822,10 +828,10 @@ def test_database_constraints_and_activity_immutability(
         completed_by=None,  # Invalid: done requires completed_by
         completed_at=None,
     )
-    db_session.add(inconsistent_task)
     with pytest.raises(IntegrityError):
-        db_session.flush()
-    db_session.rollback()
+        with db_session.begin_nested():
+            db_session.add(inconsistent_task)
+            db_session.flush()
 
     # 3. TaskActivity immutability trigger
     valid_task = Task(
@@ -853,11 +859,11 @@ def test_database_constraints_and_activity_immutability(
 
     # Attempt to update activity triggers rejection
     with pytest.raises(DBAPIError):
-        db_session.execute(
-            text("UPDATE task_activities SET details = 'Tampered' WHERE id = :id"),
-            {"id": activity.id},
-        )
-    db_session.rollback()
+        with db_session.begin_nested():
+            db_session.execute(
+                text("UPDATE task_activities SET details = 'Tampered' WHERE id = :id"),
+                {"id": activity.id},
+            )
 
 
 def test_cross_phase_end_to_end_workflow(
@@ -876,10 +882,9 @@ def test_cross_phase_end_to_end_workflow(
 
     # 3. Coordinator assigns supervisor
     assign_supervisor(
+        session=db_session,
         team_id=team.id,
         supervisor_id=supervisor.id,
-        acting_user=coordinator,
-        session=db_session,
     )
 
     # 4. Supervisor creates milestone
@@ -932,7 +937,7 @@ def test_cross_phase_end_to_end_workflow(
         headers=_headers(member),
     )
 
-    # 8. Both leader and supervisor inspect task details and activity
+    # 8. Leader, supervisor, and coordinator inspect task details and activity
     detail_res = api_client.get(
         f"/teams/{team.id}/tasks/{task_id}",
         headers=_headers(supervisor),
@@ -942,6 +947,12 @@ def test_cross_phase_end_to_end_workflow(
     assert detail["status"] == "done"
     assert detail["completed_by"] == str(member.id)
     assert detail["checklist_items"][0]["is_done"] is True
+
+    coord_res = api_client.get(
+        f"/teams/{team.id}/tasks/{task_id}",
+        headers=_headers(coordinator),
+    )
+    assert coord_res.status_code == 200
 
     activities_res = api_client.get(
         f"/teams/{team.id}/tasks/{task_id}/activity",

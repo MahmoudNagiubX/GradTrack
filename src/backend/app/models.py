@@ -4,10 +4,12 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     String,
@@ -490,11 +492,15 @@ class TaskActivity(Base):
             ")",
             name="ck_task_activities_event_type",
         ),
+        Index("ix_task_activities_task_seq", "task_id", "sequence_id"),
         Index("ix_task_activities_task_created", "task_id", "created_at", "id"),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    sequence_id: Mapped[int] = mapped_column(
+        BigInteger, Identity(start=1), nullable=False, unique=True
     )
     task_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
