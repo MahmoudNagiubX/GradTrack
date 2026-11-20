@@ -7,8 +7,11 @@ from zoneinfo import ZoneInfo
 import pytest
 from app.schemas import (
     TaskActivityResponse,
+    TaskAttachmentResponse,
     TaskChecklistItemCreateRequest,
     TaskChecklistItemUpdateRequest,
+    TaskCommentCreateRequest,
+    TaskCommentResponse,
     TaskCreateRequest,
     TaskDetailResponse,
     TaskResponse,
@@ -206,3 +209,98 @@ def test_task_activity_response_schema() -> None:
     )
     assert act.event_type == "created"
     assert act.actor_name == "Test Student"
+
+    # Phase 6B event types
+    comment_act = TaskActivityResponse(
+        id=uuid4(),
+        task_id=uuid4(),
+        actor_id=uuid4(),
+        actor_name="Student Author",
+        event_type="comment_added",
+        old_value=None,
+        new_value=None,
+        details="Added a comment",
+        created_at=now,
+    )
+    assert comment_act.event_type == "comment_added"
+
+    attach_act = TaskActivityResponse(
+        id=uuid4(),
+        task_id=uuid4(),
+        actor_id=uuid4(),
+        actor_name="Student Uploader",
+        event_type="attachment_uploaded",
+        old_value=None,
+        new_value=None,
+        details="Attached file 'spec.pdf'",
+        created_at=now,
+    )
+    assert attach_act.event_type == "attachment_uploaded"
+
+
+def test_task_comment_create_request_valid() -> None:
+    req = TaskCommentCreateRequest(content="  This is a progress update.  ")
+    assert req.content == "This is a progress update."
+
+
+def test_task_comment_create_request_rejects_empty_or_whitespace() -> None:
+    with pytest.raises(ValidationError):
+        TaskCommentCreateRequest(content="")
+    with pytest.raises(ValidationError):
+        TaskCommentCreateRequest(content="    ")
+
+
+def test_task_comment_create_request_rejects_too_long() -> None:
+    with pytest.raises(ValidationError):
+        TaskCommentCreateRequest(content="x" * 2001)
+
+
+def test_task_comment_create_request_rejects_extra_fields() -> None:
+    with pytest.raises(ValidationError):
+        TaskCommentCreateRequest(
+            content="Valid comment",
+            extra_field="disallowed",  # type: ignore[call-arg]
+        )
+
+
+def test_task_comment_response_schema() -> None:
+    now = datetime.now(timezone.utc)
+    comment_id = uuid4()
+    task_id = uuid4()
+    author_id = uuid4()
+    resp = TaskCommentResponse(
+        id=comment_id,
+        task_id=task_id,
+        author_id=author_id,
+        author_name="Ahmed Student",
+        content="Testing comment response",
+        created_at=now,
+    )
+    assert resp.id == comment_id
+    assert resp.task_id == task_id
+    assert resp.author_name == "Ahmed Student"
+    assert resp.content == "Testing comment response"
+
+
+def test_task_attachment_response_schema_never_exposes_storage_key() -> None:
+    now = datetime.now(timezone.utc)
+    attachment_id = uuid4()
+    task_id = uuid4()
+    uploader_id = uuid4()
+    resp = TaskAttachmentResponse(
+        id=attachment_id,
+        task_id=task_id,
+        uploader_id=uploader_id,
+        uploader_name="Sarah Student",
+        original_filename="diagram.png",
+        file_size_bytes=1024,
+        media_type="image/png",
+        created_at=now,
+    )
+    assert resp.id == attachment_id
+    assert resp.original_filename == "diagram.png"
+    assert resp.file_size_bytes == 1024
+    assert resp.media_type == "image/png"
+    assert not hasattr(resp, "storage_key")
+    dumped = resp.model_dump()
+    assert "storage_key" not in dumped

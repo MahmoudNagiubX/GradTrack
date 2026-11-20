@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -973,6 +974,522 @@ def test_cross_phase_end_to_end_workflow(
     assert (
         api_client.get(
             f"/teams/{team.id}/tasks/{task_id}",
+            headers=_headers(unrelated),
+        ).status_code
+        == 404
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6B Integration Tests: GT-28 Task Comments and Attachments
+# ---------------------------------------------------------------------------
+
+
+def test_task_comment_creation_and_chronological_listing(
+    api_client: TestClient,
+    db_session: OrmSession,
+) -> None:
+    leader = _new_user(db_session, display_name="Leader Mona")
+    member = _new_user(db_session, display_name="Member Karim")
+    supervisor = _new_user(db_session, "supervisor", display_name="Dr. Tarek")
+    coordinator = _new_user(db_session, "coordinator", display_name="Eng. Hoda")
+    team = _new_team(db_session, leader)
+    _add_team_member(db_session, team, member)
+    assign_supervisor(db_session, team.id, supervisor.id)
+
+    task_res = api_client.post(
+        f"/teams/{team.id}/tasks",
+        json={"title": "Design Database Schema", "assignee_id": str(member.id)},
+        headers=_headers(leader),
+    )
+    assert task_res.status_code == 201
+    task_id = task_res.json()["id"]
+
+    # 1. Member posts a comment
+    com1_res = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        json={"content": "Drafted initial tables for users and teams."},
+        headers=_headers(member),
+    )
+    assert com1_res.status_code == 201
+    com1 = com1_res.json()
+    assert com1["author_id"] == str(member.id)
+    assert com1["author_name"] == "Member Karim"
+    assert com1["content"] == "Drafted initial tables for users and teams."
+    assert com1["task_id"] == task_id
+
+    # 2. Leader replies with a comment
+    com2_res = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        json={"content": "Please add task_comments and task_attachments as well."},
+        headers=_headers(leader),
+    )
+    assert com2_res.status_code == 201
+    com2 = com2_res.json()
+    assert com2["author_id"] == str(leader.id)
+    assert com2["author_name"] == "Leader Mona"
+
+    # 3. List comments as member, supervisor, and coordinator
+    for viewer in [member, supervisor, coordinator]:
+        list_res = api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/comments",
+            headers=_headers(viewer),
+        )
+        assert list_res.status_code == 200
+        comments = list_res.json()
+        assert len(comments) == 2
+        assert comments[0]["id"] == com1["id"]
+        assert comments[1]["id"] == com2["id"]
+
+    # 4. Verify task activity contains comment events
+    act_res = api_client.get(
+        f"/teams/{team.id}/tasks/{task_id}/activity",
+        headers=_headers(supervisor),
+    )
+    assert act_res.status_code == 200
+    activities = act_res.json()
+    comment_activities = [a for a in activities if a["event_type"] == "comment_added"]
+    assert len(comment_activities) == 2
+    assert comment_activities[0]["actor_id"] == str(member.id)
+    assert comment_activities[1]["actor_id"] == str(leader.id)
+
+
+def test_task_comment_authorization_and_boundary_checks(
+    api_client: TestClient,
+    db_session: OrmSession,
+) -> None:
+    leader = _new_user(db_session)
+    member = _new_user(db_session)
+    supervisor = _new_user(db_session, "supervisor")
+    coordinator = _new_user(db_session, "coordinator")
+    outsider = _new_user(db_session)
+    team = _new_team(db_session, leader)
+    _add_team_member(db_session, team, member)
+    assign_supervisor(db_session, team.id, supervisor.id)
+
+    task_res = api_client.post(
+        f"/teams/{team.id}/tasks",
+        json={"title": "Boundary Task", "assignee_id": str(member.id)},
+        headers=_headers(leader),
+    )
+    assert task_res.status_code == 201
+    task_id = task_res.json()["id"]
+
+    # Supervisor and coordinator cannot post comments (read-only)
+    sup_com = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        json={"content": "Supervisor comment attempt"},
+        headers=_headers(supervisor),
+    )
+    assert sup_com.status_code == 403
+    assert "Only team student members can post comments" in sup_com.text
+
+    coord_com = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        json={"content": "Coordinator comment attempt"},
+        headers=_headers(coordinator),
+    )
+    assert coord_com.status_code == 403
+    assert "Only team student members can post comments" in coord_com.text
+
+    # Outsider student gets 404 (non-enumerating)
+    out_com = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        json={"content": "Outsider comment attempt"},
+        headers=_headers(outsider),
+    )
+    assert out_com.status_code == 404
+
+    out_get = api_client.get(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        headers=_headers(outsider),
+    )
+    assert out_get.status_code == 404
+
+    # Empty or whitespace comment is rejected
+    empty_com = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        json={"content": "   "},
+        headers=_headers(member),
+    )
+    assert empty_com.status_code == 422
+
+    # Overly long comment (> 2000 chars) is rejected
+    long_com = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        json={"content": "c" * 2001},
+        headers=_headers(member),
+    )
+    assert long_com.status_code == 422
+
+    # Unknown task returns 404
+    missing_task_res = api_client.post(
+        f"/teams/{team.id}/tasks/{uuid4()}/comments",
+        json={"content": "Comment for missing task"},
+        headers=_headers(member),
+    )
+    assert missing_task_res.status_code == 404
+
+
+def test_task_attachment_upload_and_authorized_download(
+    api_client: TestClient,
+    db_session: OrmSession,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    leader = _new_user(db_session, display_name="Leader Salma")
+    member = _new_user(db_session, display_name="Member Omar")
+    supervisor = _new_user(db_session, "supervisor", display_name="Dr. Khaled")
+    unrelated_supervisor = _new_user(db_session, "supervisor")
+    coordinator = _new_user(db_session, "coordinator", display_name="Eng. Nabil")
+    outsider = _new_user(db_session)
+    team = _new_team(db_session, leader)
+    _add_team_member(db_session, team, member)
+    assign_supervisor(db_session, team.id, supervisor.id)
+
+    private_root = tmp_path / "private_task_uploads"
+    monkeypatch.setenv("GRADTRACK_PRIVATE_UPLOAD_DIR", str(private_root))
+
+    task_res = api_client.post(
+        f"/teams/{team.id}/tasks",
+        json={"title": "Prepare Architecture Diagrams", "assignee_id": str(member.id)},
+        headers=_headers(leader),
+    )
+    assert task_res.status_code == 201
+    task_id = task_res.json()["id"]
+
+    # 1. Member uploads a PDF attachment
+    pdf_bytes = b"%PDF-1.4\nsynthetic-pdf-task-content"
+    upload_res = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        files={"file": ("Architecture-Diagrams.pdf", pdf_bytes, "application/pdf")},
+        headers=_headers(member),
+    )
+    assert upload_res.status_code == 201
+    att = upload_res.json()
+    assert att["original_filename"] == "Architecture-Diagrams.pdf"
+    assert att["file_size_bytes"] == len(pdf_bytes)
+    assert att["media_type"] == "application/pdf"
+    assert att["uploader_id"] == str(member.id)
+    assert att["uploader_name"] == "Member Omar"
+    assert "storage_key" not in att
+    attachment_id = att["id"]
+
+    # Verify physical file stored privately with random name
+    stored_files = list(private_root.iterdir())
+    assert len(stored_files) == 1
+    assert stored_files[0].name != "Architecture-Diagrams.pdf"
+    assert stored_files[0].read_bytes() == pdf_bytes
+
+    # 2. List attachments as member, leader, supervisor, coordinator
+    for viewer in [member, leader, supervisor, coordinator]:
+        list_res = api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/attachments",
+            headers=_headers(viewer),
+        )
+        assert list_res.status_code == 200
+        attachments = list_res.json()
+        assert len(attachments) == 1
+        assert attachments[0]["id"] == attachment_id
+        assert "storage_key" not in attachments[0]
+
+    # 3. Download attachment as authorized member, supervisor, coordinator
+    for downloader in [member, leader, supervisor, coordinator]:
+        dl_res = api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/attachments/{attachment_id}/download",
+            headers=_headers(downloader),
+        )
+        assert dl_res.status_code == 200
+        assert dl_res.content == pdf_bytes
+        assert dl_res.headers["X-Content-Type-Options"] == "nosniff"
+        assert dl_res.headers["Cache-Control"] == "no-store"
+        assert dl_res.headers["Content-Length"] == str(len(pdf_bytes))
+        assert "attachment" in dl_res.headers["Content-Disposition"]
+        assert "Architecture-Diagrams.pdf" in dl_res.headers["Content-Disposition"]
+
+    # 4. Deny download to outsider student and unrelated supervisor
+    assert (
+        api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/attachments/{attachment_id}/download",
+            headers=_headers(outsider),
+        ).status_code
+        == 404
+    )
+    assert (
+        api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/attachments/{attachment_id}/download",
+            headers=_headers(unrelated_supervisor),
+        ).status_code
+        == 404
+    )
+
+    # 5. Check task activity contains attachment event
+    act_res = api_client.get(
+        f"/teams/{team.id}/tasks/{task_id}/activity",
+        headers=_headers(supervisor),
+    )
+    assert act_res.status_code == 200
+    activities = act_res.json()
+    attach_activities = [
+        a for a in activities if a["event_type"] == "attachment_uploaded"
+    ]
+    assert len(attach_activities) == 1
+    assert attach_activities[0]["actor_id"] == str(member.id)
+    assert "Architecture-Diagrams.pdf" in attach_activities[0]["details"]
+
+
+def test_task_attachment_validation_and_failures(
+    api_client: TestClient,
+    db_session: OrmSession,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    leader = _new_user(db_session)
+    member = _new_user(db_session)
+    supervisor = _new_user(db_session, "supervisor")
+    coordinator = _new_user(db_session, "coordinator")
+    outsider = _new_user(db_session)
+    team = _new_team(db_session, leader)
+    _add_team_member(db_session, team, member)
+    assign_supervisor(db_session, team.id, supervisor.id)
+
+    private_root = tmp_path / "private_val_uploads"
+    monkeypatch.setenv("GRADTRACK_PRIVATE_UPLOAD_DIR", str(private_root))
+
+    task_res = api_client.post(
+        f"/teams/{team.id}/tasks",
+        json={"title": "Validation Task", "assignee_id": str(member.id)},
+        headers=_headers(leader),
+    )
+    assert task_res.status_code == 201
+    task_id = task_res.json()["id"]
+
+    # Supervisor and coordinator cannot upload attachments (read-only)
+    sup_up = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        files={"file": ("test.pdf", b"%PDF-1.4\ntest", "application/pdf")},
+        headers=_headers(supervisor),
+    )
+    assert sup_up.status_code == 403
+    assert "Only team student members can upload attachments" in sup_up.text
+
+    coord_up = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        files={"file": ("test.pdf", b"%PDF-1.4\ntest", "application/pdf")},
+        headers=_headers(coordinator),
+    )
+    assert coord_up.status_code == 403
+
+    # Outsider cannot upload
+    out_up = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        files={"file": ("test.pdf", b"%PDF-1.4\ntest", "application/pdf")},
+        headers=_headers(outsider),
+    )
+    assert out_up.status_code == 404
+
+    # Empty file (0 bytes) is rejected
+    empty_up = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        files={"file": ("empty.pdf", b"", "application/pdf")},
+        headers=_headers(member),
+    )
+    assert empty_up.status_code == 422
+
+    # Unsupported executable extension is rejected
+    exe_up = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        files={"file": ("malicious.exe", b"MZexecutable", "application/x-msdownload")},
+        headers=_headers(member),
+    )
+    assert exe_up.status_code == 422
+
+    # Missing file field
+    missing_part = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        data={"some_field": "val"},
+        headers=_headers(member),
+    )
+    assert missing_part.status_code == 422
+
+    # Unknown task returns 404
+    missing_task_up = api_client.post(
+        f"/teams/{team.id}/tasks/{uuid4()}/attachments",
+        files={"file": ("test.pdf", b"%PDF-1.4\ntest", "application/pdf")},
+        headers=_headers(member),
+    )
+    assert missing_task_up.status_code == 404
+
+    # Non-existent attachment download returns 404
+    assert (
+        api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/attachments/{uuid4()}/download",
+            headers=_headers(member),
+        ).status_code
+        == 404
+    )
+
+
+def test_task_attachment_storage_failure_and_cleanup(
+    api_client: TestClient,
+    db_session: OrmSession,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    leader = _new_user(db_session)
+    member = _new_user(db_session)
+    team = _new_team(db_session, leader)
+    _add_team_member(db_session, team, member)
+
+    # Point to a file rather than directory to simulate storage unavailable
+    bad_root = tmp_path / "regular_file.txt"
+    bad_root.write_text("not a directory")
+    monkeypatch.setenv("GRADTRACK_PRIVATE_UPLOAD_DIR", str(bad_root))
+
+    task_res = api_client.post(
+        f"/teams/{team.id}/tasks",
+        json={"title": "Storage Failure Task", "assignee_id": str(member.id)},
+        headers=_headers(leader),
+    )
+    assert task_res.status_code == 201
+    task_id = task_res.json()["id"]
+
+    fail_up = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        files={"file": ("doc.pdf", b"%PDF-1.4\ntest", "application/pdf")},
+        headers=_headers(member),
+    )
+    assert fail_up.status_code == 503
+    assert "Private file storage is unavailable" in fail_up.text
+
+
+def test_cross_phase_collaboration_e2e(
+    api_client: TestClient,
+    db_session: OrmSession,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Full cross-phase flow: milestone -> tasks -> collaboration -> review."""
+    leader = _new_user(db_session, display_name="Leader Yasmin")
+    member = _new_user(db_session, display_name="Member Mostafa")
+    supervisor = _new_user(db_session, "supervisor", display_name="Dr. Ashraf")
+    coordinator = _new_user(db_session, "coordinator", display_name="Eng. Dina")
+    unrelated = _new_user(db_session, display_name="Unrelated Student")
+
+    team = _new_team(db_session, leader)
+    _add_team_member(db_session, team, member)
+    assign_supervisor(db_session, team.id, supervisor.id)
+
+    private_root = tmp_path / "e2e_storage"
+    monkeypatch.setenv("GRADTRACK_PRIVATE_UPLOAD_DIR", str(private_root))
+
+    # 1. Milestone created by supervisor
+    milestone = Milestone(
+        team_id=team.id,
+        name="Architecture Milestone",
+        due_at=datetime(2026, 12, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    db_session.add(milestone)
+    db_session.commit()
+
+    # 2. Leader creates a task linked to the milestone
+    task_res = api_client.post(
+        f"/teams/{team.id}/tasks",
+        json={
+            "title": "Document C4 Diagrams",
+            "assignee_id": str(member.id),
+            "milestone_id": str(milestone.id),
+            "priority": "high",
+        },
+        headers=_headers(leader),
+    )
+    assert task_res.status_code == 201
+    task_id = task_res.json()["id"]
+
+    # 3. Member posts a comment and uploads an architecture PDF
+    com_res = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        json={"content": "Uploading the C4 Context and Container diagrams."},
+        headers=_headers(member),
+    )
+    assert com_res.status_code == 201
+
+    c4_pdf = b"%PDF-1.4\nC4 Diagram Model Content"
+    att_res = api_client.post(
+        f"/teams/{team.id}/tasks/{task_id}/attachments",
+        files={"file": ("c4_architecture.pdf", c4_pdf, "application/pdf")},
+        headers=_headers(member),
+    )
+    assert att_res.status_code == 201
+    attachment_id = att_res.json()["id"]
+
+    # 4. Member marks task in_progress then done
+    api_client.patch(
+        f"/teams/{team.id}/tasks/{task_id}/status",
+        json={"status": "in_progress"},
+        headers=_headers(member),
+    )
+    api_client.patch(
+        f"/teams/{team.id}/tasks/{task_id}/status",
+        json={"status": "done"},
+        headers=_headers(member),
+    )
+
+    # 5. Supervisor inspects the task, reads comments, downloads the attachment
+    task_view = api_client.get(
+        f"/teams/{team.id}/tasks/{task_id}",
+        headers=_headers(supervisor),
+    )
+    assert task_view.status_code == 200
+    assert task_view.json()["status"] == "done"
+
+    comments_view = api_client.get(
+        f"/teams/{team.id}/tasks/{task_id}/comments",
+        headers=_headers(supervisor),
+    )
+    assert comments_view.status_code == 200
+    assert len(comments_view.json()) == 1
+
+    download_view = api_client.get(
+        f"/teams/{team.id}/tasks/{task_id}/attachments/{attachment_id}/download",
+        headers=_headers(supervisor),
+    )
+    assert download_view.status_code == 200
+    assert download_view.content == c4_pdf
+
+    # 6. Verify full chronological activity stream
+    act_res = api_client.get(
+        f"/teams/{team.id}/tasks/{task_id}/activity",
+        headers=_headers(coordinator),
+    )
+    assert act_res.status_code == 200
+    act_types = [a["event_type"] for a in act_res.json()]
+    assert act_types == [
+        "created",
+        "comment_added",
+        "attachment_uploaded",
+        "status_changed",
+        "completed",
+    ]
+
+    # 7. Unrelated user is strictly denied
+    assert (
+        api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/comments",
+            headers=_headers(unrelated),
+        ).status_code
+        == 404
+    )
+    assert (
+        api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/attachments",
+            headers=_headers(unrelated),
+        ).status_code
+        == 404
+    )
+    assert (
+        api_client.get(
+            f"/teams/{team.id}/tasks/{task_id}/attachments/{attachment_id}/download",
             headers=_headers(unrelated),
         ).status_code
         == 404

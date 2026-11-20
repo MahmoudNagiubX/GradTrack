@@ -38,6 +38,8 @@ def test_empty_schema_can_upgrade_downgrade_and_upgrade_again(
                 "tasks",
                 "task_checklist_items",
                 "task_activities",
+                "task_comments",
+                "task_attachments",
             }
             assert expected_tables <= set(inspect(connection).get_table_names())
 
@@ -520,6 +522,145 @@ def test_phase5b_data_survives_task_migration_and_downgrade(
             # 5. Upgrade back to head
             command.upgrade(config, "head")
             assert new_tables <= set(inspect(connection).get_table_names())
+            transaction.rollback()
+    finally:
+        with postgres_engine.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+def test_phase6a_data_survives_collaboration_migration_and_downgrade(
+    postgres_engine: Engine,
+) -> None:
+    schema = f"task_collab_mig_{uuid4().hex}"
+    student_id = uuid4()
+    team_id = uuid4()
+    task_id = uuid4()
+    comment_id = uuid4()
+    attachment_id = uuid4()
+
+    with postgres_engine.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+
+    try:
+        with postgres_engine.connect() as connection:
+            transaction = connection.begin()
+            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}", public')
+            config = Config("alembic.ini")
+            config.attributes["connection"] = connection
+
+            # 1. Upgrade to Phase 6A (gt26_27_0005)
+            command.upgrade(config, "gt26_27_0005")
+
+            connection.execute(
+                text(
+                    "INSERT INTO users (id, email, password_hash, display_name, "
+                    "system_role) VALUES "
+                    "(:s_id, 'student@example.test', 'hash', 'Student', 'student')"
+                ),
+                {"s_id": student_id},
+            )
+            connection.execute(
+                text("INSERT INTO teams (id, name) VALUES (:id, 'Team Alpha')"),
+                {"id": team_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO team_memberships (id, team_id, user_id, role) "
+                    "VALUES (:id, :t_id, :u_id, 'leader')"
+                ),
+                {"id": uuid4(), "t_id": team_id, "u_id": student_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO tasks (id, team_id, title, status, priority, "
+                    "created_by, assignee_id, updated_by) VALUES "
+                    "(:task_id, :team_id, 'Build features', 'todo', 'medium', "
+                    ":creator, :assignee, :creator)"
+                ),
+                {
+                    "task_id": task_id,
+                    "team_id": team_id,
+                    "creator": student_id,
+                    "assignee": student_id,
+                },
+            )
+
+            # 2. Upgrade to Phase 6B (head: gt28_0006)
+            command.upgrade(config, "head")
+            collab_tables = {"task_comments", "task_attachments"}
+            assert collab_tables <= set(inspect(connection).get_table_names())
+
+            # 3. Insert comment and attachment
+            connection.execute(
+                text(
+                    "INSERT INTO task_comments (id, task_id, author_id, content) "
+                    "VALUES (:c_id, :task_id, :author_id, 'Great progress!')"
+                ),
+                {"c_id": comment_id, "task_id": task_id, "author_id": student_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO task_attachments (id, task_id, uploader_id, "
+                    "storage_key, original_filename, file_size_bytes, media_type) "
+                    "VALUES (:a_id, :task_id, :uploader_id, :key, :filename, :size, "
+                    ":media)"
+                ),
+                {
+                    "a_id": attachment_id,
+                    "task_id": task_id,
+                    "uploader_id": student_id,
+                    "key": "a" * 64,
+                    "filename": "notes.pdf",
+                    "size": 1024,
+                    "media": "application/pdf",
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO task_activities (id, task_id, actor_id, event_type, "
+                    "details) VALUES (:act_id, :task_id, :actor_id, 'comment_added', "
+                    "'Added a comment')"
+                ),
+                {"act_id": uuid4(), "task_id": task_id, "actor_id": student_id},
+            )
+
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM task_comments WHERE id = :id"),
+                    {"id": comment_id},
+                )
+                == 1
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM task_attachments WHERE id = :id"),
+                    {"id": attachment_id},
+                )
+                == 1
+            )
+
+            # 4. Downgrade back to gt26_27_0005
+            # Remove activity rows with new events before downgrading check constraint
+            connection.execute(
+                text(
+                    "DELETE FROM task_activities WHERE event_type IN "
+                    "('comment_added', 'attachment_uploaded')"
+                )
+            )
+            command.downgrade(config, "gt26_27_0005")
+            remaining_tables = set(inspect(connection).get_table_names())
+            assert not remaining_tables.intersection(collab_tables)
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM tasks WHERE id = :id"),
+                    {"id": task_id},
+                )
+                == 1
+            )
+
+            # 5. Upgrade back to head
+            command.upgrade(config, "head")
+            assert collab_tables <= set(inspect(connection).get_table_names())
             transaction.rollback()
     finally:
         with postgres_engine.begin() as connection:
