@@ -608,3 +608,31 @@ class TaskAttachment(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class NotificationReadReceipt(Base):
+    """Stores persistent read receipts for derived deadline reminders."""
+
+    __tablename__ = "notification_read_receipts"
+    __table_args__ = (Index("ix_notification_read_receipts_user_id", "user_id"),)
+
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "users.id",
+            name="fk_notification_read_receipts_user",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+        nullable=False,
+    )
+    reminder_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        nullable=False,
+    )
+    read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
