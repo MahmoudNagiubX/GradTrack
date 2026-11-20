@@ -1,0 +1,1 @@
+"""GradTrack FastAPI application package."""
