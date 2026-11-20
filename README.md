@@ -255,6 +255,96 @@ Example comment payload:
 }
 ```
 
+### Timeline / Calendar Data and Progress Dashboards — Phase 7A
+
+Phase 7A introduces unified timeline calendar data and derived progress summaries for student teams and assigned supervisors. All metrics are computed dynamically from existing tables without adding database tables or scheduled aggregation jobs.
+
+| Request | Permission | Behavior |
+|---|---|---|
+| `GET /teams/{team_id}/calendar?start_at=...&end_at=...` | Current team viewer | Returns unified chronological tasks and milestones in the half-open range `[start_at, end_at)`. Tasks with `due_at = NULL` are omitted. Maximum range is 93 days. |
+| `GET /teams/{team_id}/progress` | Current team viewer | Returns derived progress metrics for the team: task lifecycle/overdue counts, assignee task breakdowns, milestone review/deadline counts, late submission count, and upcoming deadlines within 14 days. |
+| `GET /supervisor/teams/progress` | Active supervisor | Returns an array of derived progress summaries for all teams currently assigned to the authenticated supervisor, ordered alphabetically by team name. |
+
+Calendar queries require UTC offset-aware ISO 8601 timestamps and validate `start_at < end_at` with a maximum window of 93 days:
+```text
+GET /teams/{team_id}/calendar?start_at=2026-12-01T00:00:00Z&end_at=2026-12-31T23:59:59Z
+```
+
+Example calendar item (discriminated union by `kind`):
+```json
+[
+  {
+    "id": "TASK_UUID",
+    "team_id": "TEAM_UUID",
+    "title": "Setup PostgreSQL database",
+    "due_at": "2026-12-05T18:00:00Z",
+    "kind": "task",
+    "status": "in_progress",
+    "priority": "high",
+    "assignee_id": "STUDENT_UUID",
+    "milestone_id": "MILESTONE_UUID"
+  },
+  {
+    "id": "MILESTONE_UUID",
+    "team_id": "TEAM_UUID",
+    "title": "Sprint 1 Review",
+    "due_at": "2026-12-10T12:00:00Z",
+    "kind": "milestone",
+    "deadline_status": "due_soon",
+    "review_status": "pending_review"
+  }
+]
+```
+
+Example team progress summary:
+```json
+{
+  "team_id": "TEAM_UUID",
+  "team_name": "Alpha Team",
+  "as_of": "2026-12-01T12:00:00Z",
+  "tasks": {
+    "total": 10,
+    "todo": 3,
+    "in_progress": 4,
+    "done": 3,
+    "overdue": 1
+  },
+  "tasks_by_assignee": [
+    {
+      "user_id": "STUDENT_UUID",
+      "display_name": "Student A",
+      "total": 5,
+      "todo": 1,
+      "in_progress": 2,
+      "done": 2,
+      "overdue": 1
+    }
+  ],
+  "milestones": {
+    "total": 4,
+    "scheduled": 2,
+    "due_soon": 1,
+    "overdue": 1,
+    "not_submitted": 2,
+    "pending_review": 1,
+    "returned": 0,
+    "approved": 1
+  },
+  "late_submissions": 1,
+  "upcoming": [
+    {
+      "kind": "task",
+      "id": "TASK_UUID",
+      "title": "Design ERD",
+      "due_at": "2026-12-03T15:00:00Z",
+      "status": "in_progress",
+      "priority": "high",
+      "assignee_id": "STUDENT_UUID"
+    }
+  ]
+}
+```
+
 ### Configuration
 
 Configuration is read from environment variables. Defaults are safe for local development: debug mode is off and logging is set to `INFO`.
@@ -270,7 +360,7 @@ Configuration is read from environment variables. Defaults are safe for local de
 
 For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting Uvicorn to enable local debug mode. Do not commit `.env` files or real database credentials.
 
-### Phases 1–6B schema
+### Phases 1–7A schema
 
 - `users` stores UUID keys, lowercase/trimmed unique email, password-hash storage, a nonempty display name, active state, and timezone-aware timestamps. Allowed system roles are `student`, `supervisor`, and `coordinator`.
 - `teams` stores UUID keys and nonblank names. A team can be unassigned.
@@ -286,7 +376,7 @@ For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting U
 - `task_comments` stores append-only comments posted by active team student members with trimmed content (1–2000 chars), author foreign key, and server UTC timestamps.
 - `task_attachments` stores validated private file/image attachments with task foreign key, uploader foreign key, opaque 64-character storage key, original filename, bounded file size (<= 20 MiB), media type, and server UTC timestamps.
 
-Phase 6B adds team task collaboration (comments and attachments) without modifying existing submission, review, or task progress contracts.
+Phase 7A derives unified timeline calendar feeds and progress dashboards on-the-fly from existing tables without introducing additional database entities or migrations (Rule R1).
 
 ### Tests and code checks
 
