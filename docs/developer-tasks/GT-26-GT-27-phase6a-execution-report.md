@@ -72,9 +72,17 @@
 *(Local PostgreSQL was not claimed as local passes because PostgreSQL service was not running on local Windows port 5432. All PostgreSQL integration tests are verified on exact pushed-head GitHub Actions).*
 
 ### GitHub Actions CI
-- **Run URL:** Pending push of feature branch
-- **Exact Head SHA:** Pending commit & push
-- **Checks:** `repository-check` (passed), `backend-checks` (PostgreSQL 16, Alembic upgrade, 246 backend tests, Ruff lint & formatting).
+- **Run URL:** [GitHub Actions Run 44745031182](https://github.com/MahmoudNagiubX/GradTrack/actions/runs/44745031182)
+- **Exact Head SHA:** `82f3f237ef5ba3273fa13511eb49df31be6f1998`
+- **Checks:**
+  - `repository-check`: passed (4s).
+  - `backend-checks`: passed (48s), applying migrations to PostgreSQL 16, running all **246 backend tests** (100% pass), and passing Ruff lint and formatting checks.
+
+### Confirmed Bugs Found and Fixed
+1. **Activity Chronological Ordering in Transactions:** In single-transaction test fixtures, PostgreSQL `now()` evaluates to the transaction start time for all rows, causing random secondary UUID sort order. Added a monotonic integer `sequence_id` with `Identity(start=1)` to `TaskActivity` and ordered activity history by `sequence_id.asc()`.
+2. **Query String Timezone Encoding:** In HTTP GET query string, `+` in ISO timestamps represents a space; passed `due_before` through `params={...}` to ensure proper percent-encoding (`%2B`).
+3. **Supervisor Assignment Test Signature:** Corrected test helper calls to match domain signature `(session, team_id, supervisor_id)`.
+4. **Database Constraint Rollback Isolation:** Wrapped intentional constraint violation flushes in nested transaction savepoints (`with db_session.begin_nested():`) to preserve test fixtures in PostgreSQL.
 
 ---
 
@@ -84,7 +92,7 @@
 - `docs/developer-tasks/GT-26-GT-27-phase6a-execution-report.md` (execution report)
 - `README.md` (documented Phase 6A task endpoints and schema)
 - `src/backend/app/main.py` (registered tasks router)
-- `src/backend/app/models.py` (added Task, TaskChecklistItem, TaskActivity models)
+- `src/backend/app/models.py` (added Task, TaskChecklistItem, TaskActivity models with `sequence_id`)
 - `src/backend/app/schemas.py` (added task, checklist, and activity schemas)
 - `src/backend/app/tasks.py` (implemented task endpoints, permissions, and audit logging)
 - `src/backend/migrations/versions/gt26_27_0005_task_management.py` (Alembic migration)
@@ -98,6 +106,7 @@
 
 - **Branch:** `feature/GT-26-27-task-core`
 - **Target:** `develop`
+- **PR:** [#9 — [STACKED] feat(GT-26/GT-27): team task management, assignment, progress, and activity history](https://github.com/MahmoudNagiubX/GradTrack/pull/9)
 - **PR Type:** Stacked PR targeting `develop` (not for merge until PRs #2–#8 are reviewed and merged).
 - **Jira Status:** GT-26 and GT-27 remain `To Do` / moved at most to `In Review` awaiting human review. No items marked `Done`.
 
