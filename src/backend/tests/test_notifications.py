@@ -668,10 +668,11 @@ def test_notifications_cross_phase_e2e(
     # 4. Supervisor returns the submission -> actionable again
     sub.review_status = "returned"
     rev = SupervisorReview(
-        submission_version_id=v1.id,
+        version_id=v1.id,
         reviewer_id=sup.id,
         decision="returned",
         feedback="Please add diagram and revision log",
+        reviewed_at=fixed_now,
     )
     db_session.add(rev)
     db_session.commit()

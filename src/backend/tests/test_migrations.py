@@ -693,14 +693,14 @@ def test_phase7b_notification_read_receipts_migration_and_downgrade(
     try:
         with postgres_engine.connect() as connection:
             transaction = connection.begin()
-            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}", public')
+            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
             config = Config("alembic.ini")
             config.attributes["connection"] = connection
 
             # 1. Upgrade to gt28_0006 first
             command.upgrade(config, "gt28_0006")
             assert "notification_read_receipts" not in set(
-                inspect(connection).get_table_names(schema=schema)
+                inspect(connection).get_table_names()
             )
 
             # Insert an active student user
@@ -718,7 +718,7 @@ def test_phase7b_notification_read_receipts_migration_and_downgrade(
             # 2. Upgrade to head (gt30_0007)
             command.upgrade(config, "head")
             assert "notification_read_receipts" in set(
-                inspect(connection).get_table_names(schema=schema)
+                inspect(connection).get_table_names()
             )
 
             # Insert a read receipt
@@ -745,7 +745,7 @@ def test_phase7b_notification_read_receipts_migration_and_downgrade(
             # 3. Downgrade to gt28_0006
             command.downgrade(config, "gt28_0006")
             assert "notification_read_receipts" not in set(
-                inspect(connection).get_table_names(schema=schema)
+                inspect(connection).get_table_names()
             )
             # Prior data preserved
             assert (
@@ -759,7 +759,7 @@ def test_phase7b_notification_read_receipts_migration_and_downgrade(
             # 4. Re-upgrade to head
             command.upgrade(config, "head")
             assert "notification_read_receipts" in set(
-                inspect(connection).get_table_names(schema=schema)
+                inspect(connection).get_table_names()
             )
 
             transaction.rollback()
