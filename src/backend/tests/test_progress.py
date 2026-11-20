@@ -640,6 +640,136 @@ def test_team_progress_milestones_and_late_submissions(
     assert data["late_submissions"] == 1
 
 
+def test_team_progress_upcoming_deadlines_boundary_and_done_exclusion(
+    api_client: TestClient,
+    db_session: OrmSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixed_now = datetime(2026, 12, 10, 12, 0, 0, tzinfo=timezone.utc)
+    from app import progress
+
+    monkeypatch.setattr(progress, "_now_utc", lambda: fixed_now)
+
+    leader = _new_user(db_session, display_name="Leader U")
+    member = _new_user(db_session, display_name="Member U")
+    supervisor = _new_user(db_session, "supervisor", display_name="Dr. Supervisor U")
+    team = _new_team(db_session, leader)
+    _add_team_member(db_session, team, member)
+    assign_supervisor(db_session, team.id, supervisor.id)
+
+    # 1. Incomplete task due today -> IN UPCOMING
+    _new_task(
+        db_session,
+        team,
+        leader,
+        assignee=member,
+        title="Incomplete due today",
+        due_at=fixed_now + timedelta(hours=3),
+        status="in_progress",
+    )
+
+    # 2. Completed future task -> EXCLUDED FROM UPCOMING
+    _new_task(
+        db_session,
+        team,
+        leader,
+        assignee=member,
+        title="Completed future task",
+        due_at=fixed_now + timedelta(days=2),
+        status="done",
+    )
+
+    # 3. Incomplete task exactly at 14 days -> IN UPCOMING
+    _new_task(
+        db_session,
+        team,
+        leader,
+        assignee=member,
+        title="Task exactly 14 days",
+        due_at=fixed_now + timedelta(days=14),
+        status="todo",
+    )
+
+    # 4. Incomplete task at 14 days + 1 us -> EXCLUDED FROM UPCOMING
+    _new_task(
+        db_session,
+        team,
+        leader,
+        assignee=member,
+        title="Task 14 days + 1 us",
+        due_at=fixed_now + timedelta(days=14, microseconds=1),
+        status="todo",
+    )
+
+    # 5. Incomplete task in past -> EXCLUDED FROM UPCOMING (overdue)
+    _new_task(
+        db_session,
+        team,
+        leader,
+        assignee=member,
+        title="Task in past",
+        due_at=fixed_now - timedelta(days=1),
+        status="todo",
+    )
+
+    # 6. Milestone exactly at 14 days -> IN UPCOMING
+    _new_milestone(
+        db_session,
+        team,
+        name="Milestone exactly 14 days",
+        due_at=fixed_now + timedelta(days=14),
+    )
+
+    # 7. Milestone at 14 days + 1 us -> EXCLUDED FROM UPCOMING
+    _new_milestone(
+        db_session,
+        team,
+        name="Milestone 14 days + 1 us",
+        due_at=fixed_now + timedelta(days=14, microseconds=1),
+    )
+
+    # 8. Milestone in past -> EXCLUDED FROM UPCOMING
+    _new_milestone(
+        db_session,
+        team,
+        name="Milestone in past",
+        due_at=fixed_now - timedelta(days=1),
+    )
+
+    # Verification via student GET /teams/{team_id}/progress
+    res = api_client.get(f"/teams/{team.id}/progress", headers=_headers(leader))
+    assert res.status_code == 200
+    data = res.json()
+
+    assert data["tasks"]["total"] == 5
+    assert data["tasks"]["done"] == 1
+    assert data["tasks"]["overdue"] == 1
+    assert data["milestones"]["total"] == 3
+
+    upcoming = data["upcoming"]
+    upcoming_titles = [item["title"] for item in upcoming]
+    assert len(upcoming) == 3
+    assert upcoming_titles == [
+        "Incomplete due today",
+        "Milestone exactly 14 days",
+        "Task exactly 14 days",
+    ]
+
+    # Explicit negative assertions for excluded items
+    assert "Completed future task" not in upcoming_titles
+    assert "Task 14 days + 1 us" not in upcoming_titles
+    assert "Task in past" not in upcoming_titles
+    assert "Milestone 14 days + 1 us" not in upcoming_titles
+    assert "Milestone in past" not in upcoming_titles
+
+    # Verification via supervisor GET /supervisor/teams/progress (parity)
+    sup_res = api_client.get("/supervisor/teams/progress", headers=_headers(supervisor))
+    assert sup_res.status_code == 200
+    sup_data = sup_res.json()
+    assert len(sup_data) == 1
+    assert [item["title"] for item in sup_data[0]["upcoming"]] == upcoming_titles
+
+
 # ===========================================================================
 # GT-37: Supervisor Assigned-Team Progress Integration Tests
 # ===========================================================================

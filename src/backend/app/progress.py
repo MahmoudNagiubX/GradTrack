@@ -298,13 +298,14 @@ def _compute_team_progress(
             if latest_version is not None and latest_version.is_late:
                 late_submissions_count += 1
 
-    # 3. Upcoming deadlines (due_at >= now_utc)
+    # 3. Upcoming deadlines (now_utc <= due_at <= now_utc + 14 days, excluding done)
+    max_upcoming_utc = now_utc + timedelta(days=14)
     upcoming_candidates: list[UpcomingDeadlineItem] = []
 
     for task in tasks:
-        if task.due_at is not None:
+        if task.status != "done" and task.due_at is not None:
             task_due = task.due_at.astimezone(timezone.utc)
-            if task_due >= now_utc:
+            if now_utc <= task_due <= max_upcoming_utc:
                 upcoming_candidates.append(
                     UpcomingDeadlineItem(
                         kind="task",
@@ -319,7 +320,7 @@ def _compute_team_progress(
 
     for milestone in milestones:
         ms_due = milestone.due_at.astimezone(timezone.utc)
-        if ms_due >= now_utc:
+        if now_utc <= ms_due <= max_upcoming_utc:
             sub = session.scalar(
                 select(MilestoneSubmission).where(
                     MilestoneSubmission.milestone_id == milestone.id
