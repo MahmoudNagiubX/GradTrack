@@ -112,10 +112,15 @@ Added 10 comprehensive integration and authorization tests:
 ## 6. Git & GitHub Evidence
 
 - **Branch Name:** `feature/GT-29-31-37-timeline-progress`
-- **Base Commit:** `f0065c12d3fd3afd271e44c2edaab2aa91a53237`
-- **Head Commit:** `<WILL_BE_UPDATED_AFTER_COMMIT>`
-- **Pull Request:** `<WILL_BE_UPDATED_AFTER_PR>`
-- **GitHub Actions CI Run:** `<WILL_BE_UPDATED_AFTER_CI>`
+- **Base Commit:** `f0065c12d3fd3afd271e44c2edaab2aa91a53237` (PR #10 Head)
+- **Feature Commits:**
+  - `f1f9409`: `fix(GT-28): guard migration downgrade against existing collaboration activity`
+  - `585eeb8`: `feat(GT-29/GT-31/GT-37): add timeline calendar data and progress dashboards`
+  - `b0f28a8`: `test(GT-29/GT-31/GT-37): add unit and integration tests for timeline and progress`
+  - `77f68a5`: `docs(GT-29/GT-31/GT-37): document timeline and progress APIs and add execution report`
+- **Initial Verified Head Commit:** `77f68a5a6ecbf16229ca6861bf02ff4d35dc6bd5`
+- **Initial Verified CI Run:** [Run 44758181106](https://github.com/MahmoudNagiubX/GradTrack/actions/runs/44758181106) (Passed in 49s, 276 tests passing on PostgreSQL 16)
+- **Pull Request:** [PR #11](https://github.com/MahmoudNagiubX/GradTrack/pull/11) (`feature/GT-29-31-37-timeline-progress` -> `develop`)
 
 ---
 
