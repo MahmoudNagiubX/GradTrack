@@ -345,6 +345,36 @@ Example team progress summary:
 }
 ```
 
+### In-App Deadline Reminders — Phase 7B
+
+Phase 7B provides pull-based in-app deadline reminders and read receipts for active student team members. Reminder notifications are derived dynamically from existing tasks and milestones on-the-fly when the app opens or refreshes.
+
+> **Operational Notice:** Reminders are retrieved upon active application connection (pull model). No passive background daemons, Celery/cron tasks, WebSockets, or push notifications run when the server or client is closed.
+
+| Request | Permission | Behavior |
+|---|---|---|
+| `GET /notifications` | Active student team member | Returns chronological due-soon (`<= 7 days`) and overdue reminders for assigned tasks and actionable team milestones (`not_submitted` or `returned`), with read states. |
+| `GET /notifications?unread_only=true` | Active student team member | Same as above, filtering out reminders marked as read. |
+| `POST /notifications/{reminder_id}/read` | Active student team member | Marks a currently active reminder as read for the calling student. Idempotent. |
+
+Reminder IDs are generated deterministically using UUIDv5 from `source_kind + source_id + UTC due_at + reminder_kind`. If a task or milestone deadline is changed, the outdated reminder disappears from the live list and a fresh unread reminder appears with a new ID once it falls within the 7-day window. Non-student roles receive `403 Forbidden`. Attempting to mark an unknown or stale reminder returns `404 Not Found`.
+
+Example reminder payload:
+```json
+[
+  {
+    "id": "REMINDER_UUID",
+    "kind": "task_due_soon",
+    "source_id": "TASK_UUID",
+    "team_id": "TEAM_UUID",
+    "title": "Implement authentication endpoints",
+    "due_at": "2026-12-15T15:00:00Z",
+    "is_read": false,
+    "read_at": null
+  }
+]
+```
+
 ### Configuration
 
 Configuration is read from environment variables. Defaults are safe for local development: debug mode is off and logging is set to `INFO`.
@@ -360,7 +390,7 @@ Configuration is read from environment variables. Defaults are safe for local de
 
 For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting Uvicorn to enable local debug mode. Do not commit `.env` files or real database credentials.
 
-### Phases 1–7A schema
+### Phases 1–7B schema
 
 - `users` stores UUID keys, lowercase/trimmed unique email, password-hash storage, a nonempty display name, active state, and timezone-aware timestamps. Allowed system roles are `student`, `supervisor`, and `coordinator`.
 - `teams` stores UUID keys and nonblank names. A team can be unassigned.
@@ -375,8 +405,9 @@ For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting U
 - `task_activities` stores immutable chronological audit entries tracking creation, assignment/reassignment, status transitions/reopening, metadata updates, checklist additions/modifications, comment additions, and attachment uploads. A PostgreSQL trigger prevents mutation or deletion.
 - `task_comments` stores append-only comments posted by active team student members with trimmed content (1–2000 chars), author foreign key, and server UTC timestamps.
 - `task_attachments` stores validated private file/image attachments with task foreign key, uploader foreign key, opaque 64-character storage key, original filename, bounded file size (<= 20 MiB), media type, and server UTC timestamps.
+- `notification_read_receipts` stores persistent read receipts for derived deadline reminders with user foreign key, deterministic reminder UUID, and UTC read timestamp with primary key `(user_id, reminder_id)`.
 
-Phase 7A derives unified timeline calendar feeds and progress dashboards on-the-fly from existing tables without introducing additional database entities or migrations (Rule R1).
+Phase 7B derives deadline notifications dynamically on-the-fly and persists only read receipts, avoiding duplicate notification storage and maintaining perfect freshness across deadline adjustments.
 
 ### Tests and code checks
 
