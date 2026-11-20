@@ -112,9 +112,16 @@ Inspected local Smart Life Planner reference code read-only at `C:\Users\mahmo\D
 ## 7. Git & GitHub Evidence
 
 - **Base Commit:** `cae0dad24ded11461a08d58c7b42cc0421333df6` (PR #11 Head)
-- **Head Commit:** `<WILL_BE_UPDATED_AFTER_COMMIT>`
-- **Pull Request:** `<WILL_BE_UPDATED_AFTER_PR>`
-- **GitHub Actions CI Run:** `<WILL_BE_UPDATED_AFTER_CI>`
+- **Feature Commits:**
+  - `ec10d86`: `feat(GT-30): add notification_read_receipts model and migration`
+  - `4c2315b`: `feat(GT-30): implement in-app deadline reminders and read receipts`
+  - `d523b29`: `test(GT-30): add unit, migration, and PostgreSQL integration tests for reminders`
+  - `4a4a1ac`: `docs(GT-30): document notification endpoints and add execution report`
+  - `db90cb7`: `test(GT-30): fix PostgreSQL test fixtures and schema check in migration test`
+  - `57bdd0e`: `test(GT-30): set completion attributes when closing task in cross-phase e2e test`
+- **Exact Verified Head Commit:** `57bdd0efbc5493a05d0d216bc2bb04cf4f5b27e3`
+- **Exact Verified GitHub Actions CI Run:** [Run 44767454071](https://github.com/MahmoudNagiubX/GradTrack/actions/runs/44767454071) (Passed in 52s, **290 passed in 12.86s on PostgreSQL 16**)
+- **Pull Request:** [GitHub PR #12](https://github.com/MahmoudNagiubX/GradTrack/pull/12) (`feature/GT-30-in-app-reminders` targeting `develop`)
 
 ---
 
