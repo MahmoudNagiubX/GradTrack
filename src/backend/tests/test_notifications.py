@@ -692,6 +692,8 @@ def test_notifications_cross_phase_e2e(
 
     # 6. Close task (status='done') -> removed from reminders
     task.status = "done"
+    task.completed_by = s1.id
+    task.completed_at = fixed_now
     db_session.commit()
 
     r6 = api_client.get("/notifications", headers=_headers(s1)).json()
