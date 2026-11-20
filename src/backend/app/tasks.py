@@ -1,28 +1,44 @@
 """Team-scoped task assignment, progress, checklists, and activity history."""
 
+import logging
+import re
+from collections.abc import AsyncIterator, Iterator
 from datetime import datetime, timezone
-from typing import Annotated, Literal
+from typing import Annotated, BinaryIO, Literal
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
+from starlette.datastructures import FormData, UploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.auth import CurrentUser, get_current_team_membership
+from app.config import Settings
 from app.database import get_db_session
 from app.models import (
     Milestone,
     Task,
     TaskActivity,
+    TaskAttachment,
     TaskChecklistItem,
+    TaskComment,
     TeamMembership,
     User,
 )
 from app.schemas import (
     TaskActivityResponse,
+    TaskAttachmentResponse,
     TaskChecklistItemCreateRequest,
     TaskChecklistItemResponse,
     TaskChecklistItemUpdateRequest,
+    TaskCommentCreateRequest,
+    TaskCommentResponse,
     TaskCreateRequest,
     TaskDetailResponse,
     TaskResponse,
@@ -30,8 +46,18 @@ from app.schemas import (
     TaskUpdateRequest,
     _normalize_aware_utc,
 )
+from app.submission_storage import (
+    MAX_FILE_SIZE_BYTES,
+    MAX_MULTIPART_OVERHEAD_BYTES,
+    FileValidationError,
+    PrivateStorageUnavailable,
+    StagedUpload,
+    open_stored_file,
+    stage_upload,
+)
 from app.teams import get_visible_team
 
+logger = logging.getLogger("gradtrack.tasks")
 router = APIRouter(prefix="/teams/{team_id}/tasks", tags=["tasks"])
 
 DbSession = Annotated[Session, Depends(get_db_session)]
@@ -704,3 +730,483 @@ def update_checklist_item(
     session.refresh(item)
 
     return _serialize_checklist_item(item)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6B Collaboration: Task Comments & Private Attachments
+# ---------------------------------------------------------------------------
+
+
+def _require_team_student_member(
+    team_id: UUID, current_user: User, session: Session, *, action_label: str
+) -> TeamMembership:
+    if current_user.system_role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only team student members can {action_label}",
+        )
+    membership = session.scalar(
+        select(TeamMembership).where(
+            TeamMembership.team_id == team_id,
+            TeamMembership.user_id == current_user.id,
+        )
+    )
+    if membership is None or not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only team student members can {action_label}",
+        )
+    return membership
+
+
+class UploadRequestTooLarge(Exception):
+    """The complete multipart body exceeded the bounded parser allowance."""
+
+
+async def _single_file_upload(request: Request) -> AsyncIterator[UploadFile]:
+    """Parse only one `file` part and close its temporary upload after the route."""
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except ValueError:
+            declared_length = 0
+        if declared_length > MAX_FILE_SIZE_BYTES + MAX_MULTIPART_OVERHEAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="The uploaded file exceeds the 20 MiB limit",
+            )
+
+    async def bounded_stream() -> AsyncIterator[bytes]:
+        received_bytes = 0
+        async for chunk in request.stream():
+            received_bytes += len(chunk)
+            if received_bytes > MAX_FILE_SIZE_BYTES + MAX_MULTIPART_OVERHEAD_BYTES:
+                raise UploadRequestTooLarge
+            yield chunk
+
+    try:
+        parser = MultiPartParser(
+            headers=request.headers,
+            stream=bounded_stream(),
+            max_files=1,
+            max_fields=0,
+        )
+        form: FormData = await parser.parse()
+    except UploadRequestTooLarge:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="The uploaded request exceeds the 20 MiB limit",
+        ) from None
+    except (
+        StarletteHTTPException,
+        MultiPartException,
+        UnicodeDecodeError,
+        ValueError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A single multipart file named 'file' is required",
+        ) from None
+
+    items = list(form.multi_items())
+    if (
+        len(items) != 1
+        or items[0][0] != "file"
+        or not isinstance(items[0][1], UploadFile)
+    ):
+        await form.close()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A single multipart file named 'file' is required",
+        )
+
+    try:
+        yield items[0][1]
+    finally:
+        await form.close()
+
+
+FileUpload = Annotated[UploadFile, Depends(_single_file_upload)]
+
+
+def _file_chunks(source: BinaryIO) -> Iterator[bytes]:
+    try:
+        while chunk := source.read(1024 * 1024):
+            yield chunk
+    finally:
+        source.close()
+
+
+def _content_disposition(filename: str) -> str:
+    ascii_fallback = re.sub(r"[^A-Za-z0-9._-]", "_", filename).strip("._")
+    if not ascii_fallback:
+        ascii_fallback = "attachment"
+    return (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
+
+
+@router.get(
+    "/{task_id}/comments",
+    response_model=list[TaskCommentResponse],
+)
+def list_task_comments(
+    team_id: UUID,
+    task_id: UUID,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> list[TaskCommentResponse]:
+    """Return chronological comments for a team-owned task."""
+    get_visible_team(team_id, current_user, session)
+
+    task = session.scalar(
+        select(Task).where(Task.id == task_id, Task.team_id == team_id)
+    )
+    if task is None:
+        raise _task_not_found()
+
+    rows = session.execute(
+        select(TaskComment, User.display_name)
+        .join(User, User.id == TaskComment.author_id)
+        .where(TaskComment.task_id == task_id)
+        .order_by(TaskComment.created_at.asc(), TaskComment.id.asc())
+    ).all()
+
+    return [
+        TaskCommentResponse(
+            id=comment.id,
+            task_id=comment.task_id,
+            author_id=comment.author_id,
+            author_name=display_name,
+            content=comment.content,
+            created_at=_as_utc(comment.created_at),  # type: ignore[arg-type]
+        )
+        for comment, display_name in rows
+    ]
+
+
+@router.post(
+    "/{task_id}/comments",
+    response_model=TaskCommentResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        403: {"description": "Only active team student members can post comments"},
+        404: {"description": "Task not found or team mismatch"},
+        422: {"description": "Validation error on comment content"},
+    },
+)
+def add_task_comment(
+    team_id: UUID,
+    task_id: UUID,
+    payload: TaskCommentCreateRequest,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> TaskCommentResponse:
+    """Post an append-only comment to a team-owned task."""
+    get_visible_team(team_id, current_user, session)
+    _require_team_student_member(
+        team_id, current_user, session, action_label="post comments"
+    )
+
+    task = session.scalar(
+        select(Task)
+        .where(Task.id == task_id, Task.team_id == team_id)
+        .with_for_update()
+    )
+    if task is None:
+        raise _task_not_found()
+
+    comment = TaskComment(
+        task_id=task.id,
+        author_id=current_user.id,
+        content=payload.content,
+    )
+    session.add(comment)
+    session.add(
+        TaskActivity(
+            task_id=task.id,
+            actor_id=current_user.id,
+            event_type="comment_added",
+            old_value=None,
+            new_value=None,
+            details="Added a comment",
+        )
+    )
+    task.updated_by = current_user.id
+    session.commit()
+    session.refresh(comment)
+
+    return TaskCommentResponse(
+        id=comment.id,
+        task_id=comment.task_id,
+        author_id=comment.author_id,
+        author_name=current_user.display_name,
+        content=comment.content,
+        created_at=_as_utc(comment.created_at),  # type: ignore[arg-type]
+    )
+
+
+@router.get(
+    "/{task_id}/attachments",
+    response_model=list[TaskAttachmentResponse],
+)
+def list_task_attachments(
+    team_id: UUID,
+    task_id: UUID,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> list[TaskAttachmentResponse]:
+    """Return metadata for all private attachments on a team-owned task."""
+    get_visible_team(team_id, current_user, session)
+
+    task = session.scalar(
+        select(Task).where(Task.id == task_id, Task.team_id == team_id)
+    )
+    if task is None:
+        raise _task_not_found()
+
+    rows = session.execute(
+        select(TaskAttachment, User.display_name)
+        .join(User, User.id == TaskAttachment.uploader_id)
+        .where(TaskAttachment.task_id == task_id)
+        .order_by(TaskAttachment.created_at.asc(), TaskAttachment.id.asc())
+    ).all()
+
+    return [
+        TaskAttachmentResponse(
+            id=attachment.id,
+            task_id=attachment.task_id,
+            uploader_id=attachment.uploader_id,
+            uploader_name=display_name,
+            original_filename=attachment.original_filename,
+            file_size_bytes=attachment.file_size_bytes,
+            media_type=attachment.media_type,
+            created_at=_as_utc(attachment.created_at),  # type: ignore[arg-type]
+        )
+        for attachment, display_name in rows
+    ]
+
+
+@router.post(
+    "/{task_id}/attachments",
+    response_model=TaskAttachmentResponse,
+    status_code=status.HTTP_201_CREATED,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["file"],
+                        "properties": {"file": {"type": "string", "format": "binary"}},
+                    }
+                }
+            },
+        }
+    },
+    responses={
+        403: {"description": "Only active team student members can upload attachments"},
+        404: {"description": "Task not found or team mismatch"},
+        413: {"description": "The upload exceeds the 20 MiB limit"},
+        422: {"description": "The file is invalid or unsupported"},
+        503: {"description": "Private storage is unavailable"},
+    },
+)
+def upload_task_attachment(
+    team_id: UUID,
+    task_id: UUID,
+    upload: FileUpload,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> TaskAttachmentResponse:
+    """Stream, validate, and privately store a task file/image attachment."""
+    get_visible_team(team_id, current_user, session)
+    _require_team_student_member(
+        team_id, current_user, session, action_label="upload attachments"
+    )
+
+    staged: StagedUpload | None = None
+    try:
+        staged = stage_upload(
+            upload.file,
+            filename=upload.filename,
+            content_type=upload.content_type,
+            configured_dir=Settings.from_environment().private_upload_dir,
+        )
+    except FileValidationError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=str(error),
+        ) from None
+    except PrivateStorageUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Private file storage is unavailable",
+        ) from None
+
+    try:
+        task = session.scalar(
+            select(Task)
+            .where(Task.id == task_id, Task.team_id == team_id)
+            .with_for_update()
+        )
+        if task is None:
+            raise _task_not_found()
+
+        attachment = TaskAttachment(
+            task_id=task.id,
+            uploader_id=current_user.id,
+            storage_key=staged.storage_key,
+            original_filename=staged.original_filename,
+            file_size_bytes=staged.file_size_bytes,
+            media_type=staged.media_type,
+        )
+        session.add(attachment)
+        session.add(
+            TaskActivity(
+                task_id=task.id,
+                actor_id=current_user.id,
+                event_type="attachment_uploaded",
+                old_value=None,
+                new_value=None,
+                details=f"Attached file '{staged.original_filename}'",
+            )
+        )
+        task.updated_by = current_user.id
+
+        session.flush()
+        staged.promote()
+        session.commit()
+        staged.committed = True
+
+        return TaskAttachmentResponse(
+            id=attachment.id,
+            task_id=attachment.task_id,
+            uploader_id=attachment.uploader_id,
+            uploader_name=current_user.display_name,
+            original_filename=attachment.original_filename,
+            file_size_bytes=attachment.file_size_bytes,
+            media_type=attachment.media_type,
+            created_at=_as_utc(attachment.created_at),  # type: ignore[arg-type]
+        )
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Attachment could not be saved",
+        ) from None
+    except SQLAlchemyError as error:
+        session.rollback()
+        logger.error(
+            "Task attachment persistence failed: exception=%s",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Attachment could not be saved",
+        ) from None
+    except PrivateStorageUnavailable:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Private file storage is unavailable",
+        ) from None
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as error:
+        session.rollback()
+        logger.error(
+            "Task attachment processing failed: exception=%s",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Attachment could not be saved",
+        ) from None
+    finally:
+        if staged is not None:
+            staged.cleanup()
+
+
+@router.get(
+    "/{task_id}/attachments/{attachment_id}/download",
+    response_class=StreamingResponse,
+    responses={
+        404: {"description": "Attachment or task not found"},
+        503: {"description": "Attachment file is unavailable"},
+    },
+)
+def download_task_attachment(
+    team_id: UUID,
+    task_id: UUID,
+    attachment_id: UUID,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> StreamingResponse:
+    """Stream an authorized private task attachment."""
+    get_visible_team(team_id, current_user, session)
+
+    task = session.scalar(
+        select(Task).where(Task.id == task_id, Task.team_id == team_id)
+    )
+    if task is None:
+        raise _task_not_found()
+
+    attachment = session.scalar(
+        select(TaskAttachment).where(
+            TaskAttachment.id == attachment_id,
+            TaskAttachment.task_id == task_id,
+        )
+    )
+    if attachment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attachment not found",
+        )
+
+    try:
+        source = open_stored_file(
+            attachment.storage_key,
+            configured_dir=Settings.from_environment().private_upload_dir,
+        )
+    except PrivateStorageUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Attachment file is unavailable",
+        ) from None
+
+    try:
+        file_size = source.seek(0, 2)
+        source.seek(0)
+    except OSError:
+        source.close()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Attachment file is unavailable",
+        ) from None
+
+    if file_size != attachment.file_size_bytes:
+        source.close()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Attachment file is unavailable",
+        )
+
+    filename = attachment.original_filename or "attachment"
+    disposition = _content_disposition(filename)
+    headers = {
+        "Content-Disposition": disposition,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+        "Content-Length": str(attachment.file_size_bytes),
+    }
+    return StreamingResponse(
+        _file_chunks(source),
+        media_type="application/octet-stream",
+        headers=headers,
+        background=BackgroundTask(source.close),
+    )

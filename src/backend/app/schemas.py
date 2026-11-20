@@ -386,10 +386,47 @@ class TaskActivityResponse(BaseModel):
         "updated",
         "checklist_item_added",
         "checklist_item_updated",
+        "comment_added",
+        "attachment_uploaded",
     ]
     old_value: str | None
     new_value: str | None
     details: str | None
+    created_at: datetime
+
+
+class TaskCommentCreateRequest(BaseModel):
+    """Client fields accepted when posting a task comment."""
+
+    model_config = {"extra": "forbid"}
+
+    content: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
+    ]
+
+
+class TaskCommentResponse(BaseModel):
+    """Public representation of one task comment."""
+
+    id: UUID
+    task_id: UUID
+    author_id: UUID
+    author_name: str
+    content: str
+    created_at: datetime
+
+
+class TaskAttachmentResponse(BaseModel):
+    """Public metadata for a private task attachment."""
+
+    id: UUID
+    task_id: UUID
+    uploader_id: UUID
+    uploader_name: str
+    original_filename: str
+    file_size_bytes: int
+    media_type: str
     created_at: datetime
 
 

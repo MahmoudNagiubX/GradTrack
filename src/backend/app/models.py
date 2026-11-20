@@ -488,7 +488,7 @@ class TaskActivity(Base):
             "event_type IN ("
             "'created', 'assigned', 'reassigned', 'status_changed', "
             "'reopened', 'completed', 'updated', 'checklist_item_added', "
-            "'checklist_item_updated'"
+            "'checklist_item_updated', 'comment_added', 'attachment_uploaded'"
             ")",
             name="ck_task_activities_event_type",
         ),
@@ -516,6 +516,84 @@ class TaskActivity(Base):
     old_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
     new_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TaskComment(Base):
+    """An append-only comment posted by an active team student member."""
+
+    __tablename__ = "task_comments"
+    __table_args__ = (
+        CheckConstraint(
+            "length(btrim(content)) > 0", name="ck_task_comments_content_nonempty"
+        ),
+        CheckConstraint(
+            "content = btrim(content)", name="ck_task_comments_content_trimmed"
+        ),
+        CheckConstraint(
+            "length(content) <= 2000", name="ck_task_comments_content_length"
+        ),
+        Index("ix_task_comments_task_created", "task_id", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("tasks.id", name="fk_task_comments_task", ondelete="CASCADE"),
+        nullable=False,
+    )
+    author_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_comments_author"),
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TaskAttachment(Base):
+    """A private validated file or image attached to a team task."""
+
+    __tablename__ = "task_attachments"
+    __table_args__ = (
+        CheckConstraint(
+            "file_size_bytes > 0 AND file_size_bytes <= 20971520",
+            name="ck_task_attachments_file_size",
+        ),
+        CheckConstraint(
+            "length(btrim(original_filename)) > 0",
+            name="ck_task_attachments_filename_nonempty",
+        ),
+        CheckConstraint(
+            "length(storage_key) = 64",
+            name="ck_task_attachments_storage_key_length",
+        ),
+        Index("ix_task_attachments_task_created", "task_id", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("tasks.id", name="fk_task_attachments_task", ondelete="CASCADE"),
+        nullable=False,
+    )
+    uploader_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_attachments_uploader"),
+        nullable=False,
+    )
+    storage_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    media_type: Mapped[str] = mapped_column(String(127), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
