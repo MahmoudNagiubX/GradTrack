@@ -236,6 +236,25 @@ Example status change payload:
 }
 ```
 
+### Team Task Collaboration APIs — Phase 6B
+
+Phase 6B introduces team-scoped task comments and validated private file/image attachments with authorized streaming downloads.
+
+| Request | Permission | Behavior |
+|---|---|---|
+| `GET /teams/{team_id}/tasks/{task_id}/comments` | Current team viewer | Lists chronological comments on a task with author attribution and UTC timestamps. |
+| `POST /teams/{team_id}/tasks/{task_id}/comments` | Active team student member | Posts an append-only comment (1–2000 chars trimmed); records `comment_added` activity. |
+| `GET /teams/{team_id}/tasks/{task_id}/attachments` | Current team viewer | Lists metadata for private attachments (original filename, size, media type, uploader). |
+| `POST /teams/{team_id}/tasks/{task_id}/attachments` | Active team student member | Uploads a validated private file or image (up to 20 MiB); records `attachment_uploaded` activity. |
+| `GET /teams/{team_id}/tasks/{task_id}/attachments/{attachment_id}/download` | Current team viewer | Private streaming download with `nosniff`, `no-store`, and RFC 5987 `Content-Disposition`. |
+
+Example comment payload:
+```json
+{
+  "content": "Drafted the initial C4 container diagram."
+}
+```
+
 ### Configuration
 
 Configuration is read from environment variables. Defaults are safe for local development: debug mode is off and logging is set to `INFO`.
@@ -251,7 +270,7 @@ Configuration is read from environment variables. Defaults are safe for local de
 
 For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting Uvicorn to enable local debug mode. Do not commit `.env` files or real database credentials.
 
-### Phases 1–6A schema
+### Phases 1–6B schema
 
 - `users` stores UUID keys, lowercase/trimmed unique email, password-hash storage, a nonempty display name, active state, and timezone-aware timestamps. Allowed system roles are `student`, `supervisor`, and `coordinator`.
 - `teams` stores UUID keys and nonblank names. A team can be unassigned.
@@ -263,9 +282,11 @@ For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting U
 - `supervisor_reviews` stores one immutable approval or return decision, its current supervisor reviewer, optional/required feedback, and UTC review timestamp for each version. `milestone_submissions.review_status` tracks the thread's current state; API history derives each version's status from its own review.
 - `tasks` stores team-owned tasks with trimmed title, optional description, status (`todo`, `in_progress`, `done`), priority (`low`, `medium`, `high`), creator, active student member assignee, last updater, completion actor and timestamp, optional UTC deadline, bounded estimated minutes, nullable same-team milestone link, and nullable one-level same-team parent task link.
 - `task_checklist_items` stores simple checklist items with task foreign key, nonblank item text, completion boolean, creator, completer, and server timestamps.
-- `task_activities` stores immutable chronological audit entries tracking creation, assignment/reassignment, status transitions/reopening, metadata updates, and checklist additions/modifications. A PostgreSQL trigger prevents mutation or deletion.
+- `task_activities` stores immutable chronological audit entries tracking creation, assignment/reassignment, status transitions/reopening, metadata updates, checklist additions/modifications, comment additions, and attachment uploads. A PostgreSQL trigger prevents mutation or deletion.
+- `task_comments` stores append-only comments posted by active team student members with trimmed content (1–2000 chars), author foreign key, and server UTC timestamps.
+- `task_attachments` stores validated private file/image attachments with task foreign key, uploader foreign key, opaque 64-character storage key, original filename, bounded file size (<= 20 MiB), media type, and server UTC timestamps.
 
-Phase 6A adds team task management and audit trails without modifying existing submission or review flows.
+Phase 6B adds team task collaboration (comments and attachments) without modifying existing submission, review, or task progress contracts.
 
 ### Tests and code checks
 
