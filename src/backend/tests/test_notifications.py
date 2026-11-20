@@ -99,6 +99,9 @@ def _new_task(
     priority: str = "medium",
     due_at: datetime | None = None,
 ) -> Task:
+    comp_by = assignee.id if status == "done" else None
+    comp_at = datetime.now(timezone.utc) if status == "done" else None
+
     task = Task(
         team_id=team.id,
         title=title,
@@ -108,6 +111,8 @@ def _new_task(
         assignee_id=assignee.id,
         updated_by=creator.id,
         due_at=due_at,
+        completed_by=comp_by,
+        completed_at=comp_at,
     )
     session.add(task)
     session.flush()
@@ -523,10 +528,10 @@ def test_notifications_authorization_and_isolation(
     assert api_client.get("/notifications").status_code == 401
     assert api_client.post(f"/notifications/{uuid4()}/read").status_code == 401
 
-    # 2. Inactive student -> 403
+    # 2. Inactive student -> 401 (rejected at auth layer)
     assert (
         api_client.get("/notifications", headers=_headers(inactive_student)).status_code
-        == 403
+        == 401
     )
 
     # 3. Supervisor -> 403
@@ -641,6 +646,7 @@ def test_notifications_cross_phase_e2e(
     # 3. Student submits milestone -> pending_review
     sub = MilestoneSubmission(milestone_id=ms.id, review_status="pending_review")
     db_session.add(sub)
+    db_session.flush()
     v1 = SubmissionVersion(
         submission_id=sub.id,
         version_number=1,
