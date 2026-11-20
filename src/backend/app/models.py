@@ -571,7 +571,7 @@ class TaskAttachment(Base):
             name="ck_task_attachments_filename_nonempty",
         ),
         CheckConstraint(
-            "length(storage_key) = 64",
+            "length(storage_key) = 32",
             name="ck_task_attachments_storage_key_length",
         ),
         Index("ix_task_attachments_task_created", "task_id", "created_at", "id"),

@@ -609,7 +609,7 @@ def test_phase6a_data_survives_collaboration_migration_and_downgrade(
                     "a_id": attachment_id,
                     "task_id": task_id,
                     "uploader_id": student_id,
-                    "key": "a" * 64,
+                    "key": "a" * 32,
                     "filename": "notes.pdf",
                     "size": 1024,
                     "media": "application/pdf",
@@ -640,13 +640,23 @@ def test_phase6a_data_survives_collaboration_migration_and_downgrade(
             )
 
             # 4. Downgrade back to gt26_27_0005
-            # Remove activity rows with new events before downgrading check constraint
-            connection.execute(
-                text(
-                    "DELETE FROM task_activities WHERE event_type IN "
-                    "('comment_added', 'attachment_uploaded')"
-                )
+            # Disable trigger to clean up test activity before downgrade
+            connection.exec_driver_sql(
+                "ALTER TABLE task_activities DISABLE TRIGGER "
+                "trg_task_activities_immutable"
             )
+            try:
+                connection.execute(
+                    text(
+                        "DELETE FROM task_activities WHERE event_type IN "
+                        "('comment_added', 'attachment_uploaded')"
+                    )
+                )
+            finally:
+                connection.exec_driver_sql(
+                    "ALTER TABLE task_activities ENABLE TRIGGER "
+                    "trg_task_activities_immutable"
+                )
             command.downgrade(config, "gt26_27_0005")
             remaining_tables = set(inspect(connection).get_table_names())
             assert not remaining_tables.intersection(collab_tables)

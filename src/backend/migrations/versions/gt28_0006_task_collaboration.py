@@ -90,7 +90,7 @@ def upgrade() -> None:
             name="ck_task_attachments_filename_nonempty",
         ),
         sa.CheckConstraint(
-            "length(storage_key) = 64",
+            "length(storage_key) = 32",
             name="ck_task_attachments_storage_key_length",
         ),
         sa.ForeignKeyConstraint(

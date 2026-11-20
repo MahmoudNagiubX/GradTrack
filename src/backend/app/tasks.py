@@ -1170,8 +1170,8 @@ def download_task_attachment(
 
     try:
         source = open_stored_file(
+            Settings.from_environment().private_upload_dir,
             attachment.storage_key,
-            configured_dir=Settings.from_environment().private_upload_dir,
         )
     except PrivateStorageUnavailable:
         raise HTTPException(
