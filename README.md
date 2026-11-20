@@ -201,6 +201,41 @@ The review workflow uses the existing submission thread and private storage. The
 
 A pending version cannot be replaced. A returned version can receive one new link or file version, which returns the thread to `pending_review`; each version retains its own review status and feedback. Approval is final. Every version keeps its own submission timestamp, deadline snapshot, and late flag. Review and revision operations lock the submission thread before changing its state, and PostgreSQL prevents edits or deletion of review and version history. Existing secure download authorization applies to revised files as well.
 
+### Team Task Management APIs — Phase 6A
+
+Phase 6A implements team-scoped task management, assignment, progress updates, one-level subtasks, checklists, and append-only audit activity.
+
+| Request | Permission | Behavior |
+|---|---|---|
+| `GET /teams/{team_id}/tasks` | Current team viewer | Lists team tasks; supports filters (`status`, `assignee_id`, `priority`, `milestone_id`, `due_before`, `due_after`, `parent_task_id`). |
+| `GET /teams/{team_id}/tasks/{task_id}` | Current team viewer | Detailed task view including child subtasks and ordered checklist items. |
+| `POST /teams/{team_id}/tasks` | Active team leader | Creates and assigns task to an active student member of the same team; optional same-team milestone and 1-level parent task. |
+| `PATCH /teams/{team_id}/tasks/{task_id}` | Active team leader | Updates task metadata, priority, due date, estimated minutes, milestone, parent, or reassigns task. |
+| `PATCH /teams/{team_id}/tasks/{task_id}/status` | Assignee or team leader | Updates progress (`todo` ↔ `in_progress` ↔ `done`); marks completion timestamp/actor; reopening clears completion metadata. |
+| `GET /teams/{team_id}/tasks/{task_id}/activity` | Current team viewer | Chronological immutable audit history of task mutations. |
+| `POST /teams/{team_id}/tasks/{task_id}/checklist` | Active team leader | Adds a checklist item to a task. |
+| `PATCH /teams/{team_id}/tasks/{task_id}/checklist/{item_id}` | Assignee or team leader | Marks checklist item done/incomplete; leader may also edit text. |
+
+Example task creation payload:
+```json
+{
+  "title": "Implement authentication API",
+  "description": "Argon2id password hashing and JWT sessions",
+  "assignee_id": "STUDENT_UUID",
+  "priority": "high",
+  "due_at": "2026-12-15T15:00:00Z",
+  "estimated_minutes": 180,
+  "milestone_id": "MILESTONE_UUID"
+}
+```
+
+Example status change payload:
+```json
+{
+  "status": "in_progress"
+}
+```
+
 ### Configuration
 
 Configuration is read from environment variables. Defaults are safe for local development: debug mode is off and logging is set to `INFO`.
@@ -216,7 +251,7 @@ Configuration is read from environment variables. Defaults are safe for local de
 
 For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting Uvicorn to enable local debug mode. Do not commit `.env` files or real database credentials.
 
-### Phases 1–5A schema
+### Phases 1–6A schema
 
 - `users` stores UUID keys, lowercase/trimmed unique email, password-hash storage, a nonempty display name, active state, and timezone-aware timestamps. Allowed system roles are `student`, `supervisor`, and `coordinator`.
 - `teams` stores UUID keys and nonblank names. A team can be unassigned.
@@ -226,8 +261,11 @@ For example, in PowerShell set `$env:GRADTRACK_DEBUG = "true"` before starting U
 - `milestone_submissions` stores at most one initial submission thread per milestone, with `pending_review` as its initial state.
 - `submission_versions` stores version number, authenticated submitter, trusted UTC submission time, deadline snapshot, computed late flag, and exactly one HTTPS link or private-file metadata source. PostgreSQL prevents updates and deletes to accepted versions. Phase 5A accepts the first version; Phase 5B adds version-scoped review and returned-version revisions.
 - `supervisor_reviews` stores one immutable approval or return decision, its current supervisor reviewer, optional/required feedback, and UTC review timestamp for each version. `milestone_submissions.review_status` tracks the thread's current state; API history derives each version's status from its own review.
+- `tasks` stores team-owned tasks with trimmed title, optional description, status (`todo`, `in_progress`, `done`), priority (`low`, `medium`, `high`), creator, active student member assignee, last updater, completion actor and timestamp, optional UTC deadline, bounded estimated minutes, nullable same-team milestone link, and nullable one-level same-team parent task link.
+- `task_checklist_items` stores simple checklist items with task foreign key, nonblank item text, completion boolean, creator, completer, and server timestamps.
+- `task_activities` stores immutable chronological audit entries tracking creation, assignment/reassignment, status transitions/reopening, metadata updates, and checklist additions/modifications. A PostgreSQL trigger prevents mutation or deletion.
 
-Phase 5B appends immutable review records and new submission versions without changing prior version rows.
+Phase 6A adds team task management and audit trails without modifying existing submission or review flows.
 
 ### Tests and code checks
 
