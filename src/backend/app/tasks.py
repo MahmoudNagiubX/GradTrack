@@ -871,7 +871,7 @@ def list_task_comments(
         select(TaskComment, User.display_name)
         .join(User, User.id == TaskComment.author_id)
         .where(TaskComment.task_id == task_id)
-        .order_by(TaskComment.created_at.asc(), TaskComment.id.asc())
+        .order_by(TaskComment.created_at.asc(), TaskComment.sequence_id.asc())
     ).all()
 
     return [
@@ -971,7 +971,7 @@ def list_task_attachments(
         select(TaskAttachment, User.display_name)
         .join(User, User.id == TaskAttachment.uploader_id)
         .where(TaskAttachment.task_id == task_id)
-        .order_by(TaskAttachment.created_at.asc(), TaskAttachment.id.asc())
+        .order_by(TaskAttachment.created_at.asc(), TaskAttachment.sequence_id.asc())
     ).all()
 
     return [

@@ -535,11 +535,14 @@ class TaskComment(Base):
         CheckConstraint(
             "length(content) <= 2000", name="ck_task_comments_content_length"
         ),
-        Index("ix_task_comments_task_created", "task_id", "created_at", "id"),
+        Index("ix_task_comments_task_created", "task_id", "created_at", "sequence_id"),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    sequence_id: Mapped[int] = mapped_column(
+        BigInteger, Identity(start=1), nullable=False, unique=True
     )
     task_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
@@ -574,11 +577,19 @@ class TaskAttachment(Base):
             "length(storage_key) = 32",
             name="ck_task_attachments_storage_key_length",
         ),
-        Index("ix_task_attachments_task_created", "task_id", "created_at", "id"),
+        Index(
+            "ix_task_attachments_task_created",
+            "task_id",
+            "created_at",
+            "sequence_id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    sequence_id: Mapped[int] = mapped_column(
+        BigInteger, Identity(start=1), nullable=False, unique=True
     )
     task_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),

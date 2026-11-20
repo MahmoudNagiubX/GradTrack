@@ -31,6 +31,7 @@ def upgrade() -> None:
     op.create_table(
         "task_comments",
         sa.Column("id", sa.Uuid(as_uuid=True), nullable=False),
+        sa.Column("sequence_id", sa.BigInteger(), sa.Identity(start=1), nullable=False),
         sa.Column("task_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column("author_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
@@ -59,16 +60,18 @@ def upgrade() -> None:
             ["author_id"], ["users.id"], name="fk_task_comments_author"
         ),
         sa.PrimaryKeyConstraint("id", name="pk_task_comments"),
+        sa.UniqueConstraint("sequence_id", name="uq_task_comments_sequence_id"),
     )
     op.create_index(
         "ix_task_comments_task_created",
         "task_comments",
-        ["task_id", "created_at", "id"],
+        ["task_id", "created_at", "sequence_id"],
     )
 
     op.create_table(
         "task_attachments",
         sa.Column("id", sa.Uuid(as_uuid=True), nullable=False),
+        sa.Column("sequence_id", sa.BigInteger(), sa.Identity(start=1), nullable=False),
         sa.Column("task_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column("uploader_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column("storage_key", sa.String(length=64), nullable=False),
@@ -103,11 +106,12 @@ def upgrade() -> None:
             ["uploader_id"], ["users.id"], name="fk_task_attachments_uploader"
         ),
         sa.PrimaryKeyConstraint("id", name="pk_task_attachments"),
+        sa.UniqueConstraint("sequence_id", name="uq_task_attachments_sequence_id"),
     )
     op.create_index(
         "ix_task_attachments_task_created",
         "task_attachments",
-        ["task_id", "created_at", "id"],
+        ["task_id", "created_at", "sequence_id"],
     )
 
 
