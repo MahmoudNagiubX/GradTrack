@@ -40,6 +40,7 @@ def test_empty_schema_can_upgrade_downgrade_and_upgrade_again(
                 "task_activities",
                 "task_comments",
                 "task_attachments",
+                "notification_read_receipts",
             }
             assert expected_tables <= set(inspect(connection).get_table_names())
 
@@ -676,6 +677,91 @@ def test_phase6a_data_survives_collaboration_migration_and_downgrade(
             # 5. Upgrade back to head
             command.upgrade(config, "head")
             assert collab_tables <= set(inspect(connection).get_table_names())
+            transaction.rollback()
+    finally:
+        with postgres_engine.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+def test_phase7b_notification_read_receipts_migration_and_downgrade(
+    postgres_engine: Engine,
+) -> None:
+    schema = f"migration_test_{uuid4().hex}"
+    with postgres_engine.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+
+    try:
+        with postgres_engine.connect() as connection:
+            transaction = connection.begin()
+            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}", public')
+            config = Config("alembic.ini")
+            config.attributes["connection"] = connection
+
+            # 1. Upgrade to gt28_0006 first
+            command.upgrade(config, "gt28_0006")
+            assert "notification_read_receipts" not in set(
+                inspect(connection).get_table_names()
+            )
+
+            # Insert an active student user
+            user_id = uuid4()
+            connection.execute(
+                text(
+                    "INSERT INTO users (id, email, password_hash, display_name, "
+                    "system_role, is_active, created_at, updated_at) VALUES ("
+                    ":id, 'student@example.test', 'hash', 'Student', 'student', "
+                    "true, now(), now())"
+                ),
+                {"id": user_id},
+            )
+
+            # 2. Upgrade to head (gt30_0007)
+            command.upgrade(config, "head")
+            assert "notification_read_receipts" in set(
+                inspect(connection).get_table_names()
+            )
+
+            # Insert a read receipt
+            reminder_id = uuid4()
+            connection.execute(
+                text(
+                    "INSERT INTO notification_read_receipts "
+                    "(user_id, reminder_id, read_at) "
+                    "VALUES (:user_id, :reminder_id, now())"
+                ),
+                {"user_id": user_id, "reminder_id": reminder_id},
+            )
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT count(*) FROM notification_read_receipts "
+                        "WHERE user_id = :u"
+                    ),
+                    {"u": user_id},
+                )
+                == 1
+            )
+
+            # 3. Downgrade to gt28_0006
+            command.downgrade(config, "gt28_0006")
+            assert "notification_read_receipts" not in set(
+                inspect(connection).get_table_names()
+            )
+            # Prior data preserved
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM users WHERE id = :id"),
+                    {"id": user_id},
+                )
+                == 1
+            )
+
+            # 4. Re-upgrade to head
+            command.upgrade(config, "head")
+            assert "notification_read_receipts" in set(
+                inspect(connection).get_table_names()
+            )
+
             transaction.rollback()
     finally:
         with postgres_engine.begin() as connection:
