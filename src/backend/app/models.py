@@ -313,3 +313,203 @@ class SupervisorReview(Base):
     reviewed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class Task(Base):
+    """A team-owned task with assignment, status, and milestone association."""
+
+    __tablename__ = "tasks"
+    __table_args__ = (
+        CheckConstraint("length(btrim(title)) > 0", name="ck_tasks_title_nonempty"),
+        CheckConstraint("title = btrim(title)", name="ck_tasks_title_trimmed"),
+        CheckConstraint("length(title) <= 200", name="ck_tasks_title_length"),
+        CheckConstraint(
+            "status IN ('todo', 'in_progress', 'done')", name="ck_tasks_status"
+        ),
+        CheckConstraint(
+            "priority IN ('low', 'medium', 'high')", name="ck_tasks_priority"
+        ),
+        CheckConstraint(
+            "estimated_minutes IS NULL OR "
+            "(estimated_minutes > 0 AND estimated_minutes <= 525600)",
+            name="ck_tasks_estimated_minutes_range",
+        ),
+        CheckConstraint(
+            "parent_task_id IS NULL OR parent_task_id != id",
+            name="ck_tasks_no_self_parent",
+        ),
+        CheckConstraint(
+            "(status = 'done' AND completed_at IS NOT NULL "
+            "AND completed_by IS NOT NULL) OR "
+            "(status != 'done' AND completed_at IS NULL AND completed_by IS NULL)",
+            name="ck_tasks_completion_consistency",
+        ),
+        Index("ix_tasks_team_status", "team_id", "status"),
+        Index("ix_tasks_team_assignee", "team_id", "assignee_id"),
+        Index("ix_tasks_team_due_at", "team_id", "due_at"),
+        Index("ix_tasks_team_milestone", "team_id", "milestone_id"),
+        Index("ix_tasks_team_parent", "team_id", "parent_task_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    team_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("teams.id", name="fk_tasks_team"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="todo", server_default="todo"
+    )
+    priority: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="medium", server_default="medium"
+    )
+    created_by: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_tasks_created_by"),
+        nullable=False,
+    )
+    assignee_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_tasks_assignee"),
+        nullable=False,
+    )
+    updated_by: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_tasks_updated_by"),
+        nullable=False,
+    )
+    completed_by: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_tasks_completed_by"),
+        nullable=True,
+    )
+    due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    estimated_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    milestone_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("milestones.id", name="fk_tasks_milestone"),
+        nullable=True,
+    )
+    parent_task_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("tasks.id", name="fk_tasks_parent"),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class TaskChecklistItem(Base):
+    """A single checklist item belonging to a task."""
+
+    __tablename__ = "task_checklist_items"
+    __table_args__ = (
+        CheckConstraint(
+            "length(btrim(item_text)) > 0",
+            name="ck_task_checklist_items_text_nonempty",
+        ),
+        CheckConstraint(
+            "item_text = btrim(item_text)",
+            name="ck_task_checklist_items_text_trimmed",
+        ),
+        CheckConstraint(
+            "length(item_text) <= 200",
+            name="ck_task_checklist_items_text_length",
+        ),
+        CheckConstraint(
+            "(is_done = true AND completed_at IS NOT NULL "
+            "AND completed_by IS NOT NULL) OR "
+            "(is_done = false AND completed_at IS NULL AND completed_by IS NULL)",
+            name="ck_task_checklist_items_done_consistency",
+        ),
+        Index("ix_task_checklist_items_task_id", "task_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("tasks.id", name="fk_task_checklist_items_task", ondelete="CASCADE"),
+        nullable=False,
+    )
+    item_text: Mapped[str] = mapped_column(String(200), nullable=False)
+    is_done: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    created_by: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_checklist_items_created_by"),
+        nullable=False,
+    )
+    completed_by: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_checklist_items_completed_by"),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class TaskActivity(Base):
+    """An append-only audit event for one task mutation."""
+
+    __tablename__ = "task_activities"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ("
+            "'created', 'assigned', 'reassigned', 'status_changed', "
+            "'reopened', 'completed', 'updated', 'checklist_item_added', "
+            "'checklist_item_updated'"
+            ")",
+            name="ck_task_activities_event_type",
+        ),
+        Index("ix_task_activities_task_created", "task_id", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid4
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("tasks.id", name="fk_task_activities_task", ondelete="CASCADE"),
+        nullable=False,
+    )
+    actor_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", name="fk_task_activities_actor"),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    old_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    new_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
