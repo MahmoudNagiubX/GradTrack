@@ -35,6 +35,9 @@ def test_empty_schema_can_upgrade_downgrade_and_upgrade_again(
                 "milestone_submissions",
                 "submission_versions",
                 "supervisor_reviews",
+                "tasks",
+                "task_checklist_items",
+                "task_activities",
             }
             assert expected_tables <= set(inspect(connection).get_table_names())
 
@@ -364,6 +367,159 @@ def test_supervisor_review_migration_preserves_phase5a_data_and_round_trips(
 
             command.upgrade(config, "head")
             assert "supervisor_reviews" in inspect(connection).get_table_names()
+            transaction.rollback()
+    finally:
+        with postgres_engine.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+def test_phase5b_data_survives_task_migration_and_downgrade(
+    postgres_engine: Engine,
+) -> None:
+    schema = f"task_migration_{uuid4().hex}"
+    with postgres_engine.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+
+    try:
+        with postgres_engine.connect() as connection:
+            transaction = connection.begin()
+            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}", public')
+            config = Config("alembic.ini")
+            config.attributes["connection"] = connection
+
+            # 1. Apply up to Phase 5B
+            command.upgrade(config, "gt22_25_0004")
+            student_id = uuid4()
+            supervisor_id = uuid4()
+            team_id = uuid4()
+            milestone_id = uuid4()
+            sub_id = uuid4()
+            ver_id = uuid4()
+            rev_id = uuid4()
+
+            connection.execute(
+                text(
+                    "INSERT INTO users (id, email, password_hash, display_name, "
+                    "system_role) VALUES "
+                    "(:s_id, 'student@example.test', 'hash', 'Student', 'student'), "
+                    "(:sup_id, 'supervisor@example.test', 'hash', 'Supervisor', "
+                    "'supervisor')"
+                ),
+                {"s_id": student_id, "sup_id": supervisor_id},
+            )
+            connection.execute(
+                text("INSERT INTO teams (id, name) VALUES (:id, 'Alpha')"),
+                {"id": team_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO team_memberships (id, team_id, user_id, role) "
+                    "VALUES (:id, :t_id, :u_id, 'leader')"
+                ),
+                {"id": uuid4(), "t_id": team_id, "u_id": student_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO supervisor_assignments (team_id, supervisor_id) "
+                    "VALUES (:t_id, :sup_id)"
+                ),
+                {"t_id": team_id, "sup_id": supervisor_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO milestones (id, team_id, name, due_at) "
+                    "VALUES (:m_id, :t_id, 'SRS', '2026-12-01T15:00:00Z')"
+                ),
+                {"m_id": milestone_id, "t_id": team_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO milestone_submissions "
+                    "(id, milestone_id, review_status) "
+                    "VALUES (:sub_id, :m_id, 'approved')"
+                ),
+                {"sub_id": sub_id, "m_id": milestone_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO submission_versions "
+                    "(id, submission_id, version_number, submitted_by, submitted_at, "
+                    "deadline_at_submission, is_late, source_type, url) "
+                    "VALUES (:v_id, :sub_id, 1, :s_id, '2026-11-30T15:00:00Z', "
+                    "'2026-12-01T15:00:00Z', false, 'link', 'https://example.org/srs')"
+                ),
+                {"v_id": ver_id, "sub_id": sub_id, "s_id": student_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO supervisor_reviews (id, version_id, reviewer_id, "
+                    "decision, feedback, reviewed_at) VALUES (:rev_id, :v_id, "
+                    ":sup_id, 'approved', 'Looks good', '2026-12-01T16:00:00Z')"
+                ),
+                {"rev_id": rev_id, "v_id": ver_id, "sup_id": supervisor_id},
+            )
+
+            # 2. Upgrade to head (gt26_27_0005)
+            command.upgrade(config, "head")
+            new_tables = {"tasks", "task_checklist_items", "task_activities"}
+            assert new_tables <= set(inspect(connection).get_table_names())
+
+            # 3. Insert task and checklist item
+            task_id = uuid4()
+            connection.execute(
+                text(
+                    "INSERT INTO tasks (id, team_id, title, status, priority, "
+                    "created_by, assignee_id, updated_by) VALUES "
+                    "(:task_id, :team_id, 'Verify migration', 'todo', 'medium', "
+                    ":creator, :assignee, :creator)"
+                ),
+                {
+                    "task_id": task_id,
+                    "team_id": team_id,
+                    "creator": student_id,
+                    "assignee": student_id,
+                },
+            )
+            chk_id = uuid4()
+            connection.execute(
+                text(
+                    "INSERT INTO task_checklist_items (id, task_id, item_text, "
+                    "is_done, created_by) VALUES (:chk_id, :task_id, 'Step 1', "
+                    "false, :creator)"
+                ),
+                {"chk_id": chk_id, "task_id": task_id, "creator": student_id},
+            )
+
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM tasks WHERE id = :id"),
+                    {"id": task_id},
+                )
+                == 1
+            )
+
+            # 4. Downgrade back to gt22_25_0004
+            command.downgrade(config, "gt22_25_0004")
+            remaining_tables = set(inspect(connection).get_table_names())
+            assert not remaining_tables.intersection(new_tables)
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM supervisor_reviews WHERE id = :id"),
+                    {"id": rev_id},
+                )
+                == 1
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM submission_versions WHERE id = :id"),
+                    {"id": ver_id},
+                )
+                == 1
+            )
+
+            # 5. Upgrade back to head
+            command.upgrade(config, "head")
+            assert new_tables <= set(inspect(connection).get_table_names())
             transaction.rollback()
     finally:
         with postgres_engine.begin() as connection:
