@@ -171,8 +171,10 @@ Across the 36 positive synthetic cards, 13 samples failed either ID or Name exac
 
 - **Branch Created:** `spike/GT-33-university-id-ocr`
 - **Commits:**
-  - `spike(GT-33): benchmark local Arabic-English university-card OCR`
-  - `docs(GT-33): record synthetic OCR feasibility results`
+  - `9abbff0` `spike(GT-33): benchmark local Arabic-English university-card OCR`
+  - `57fb64f` `docs(GT-33): record synthetic OCR feasibility results`
+- **Stacked Pull Request:** [PR #14](https://github.com/MahmoudNagiubX/GradTrack/pull/14) targeting `develop` (stacked on PR #13)
+- **Exact-Head CI Run:** [Run 44861151121](https://github.com/MahmoudNagiubX/GradTrack/actions/runs/44861151121) succeeded (312 passed in 12.79s, lint clean)
 - **Changed Files:**
   - `docs/developer-tasks/GT-32-profile-backend-execution-report.md` (corrected head SHA evidence)
   - `docs/developer-tasks/GT-33-ocr-feasibility-report.md` (this report)
