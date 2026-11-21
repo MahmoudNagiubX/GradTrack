@@ -1,0 +1,13 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+markers = ["postgresql: tests that require a real PostgreSQL database"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["app", "tests", "migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

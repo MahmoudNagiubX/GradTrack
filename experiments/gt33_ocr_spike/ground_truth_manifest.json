@@ -1,0 +1,402 @@
+[
+  {
+    "sample_id": "eng_clean_01",
+    "filename": "eng_clean_01.png",
+    "language": "english",
+    "condition": "clean",
+    "expected_full_name": "Alexander Clark",
+    "expected_student_number": "20240182",
+    "is_negative": false,
+    "notes": "English fictional card (clean)"
+  },
+  {
+    "sample_id": "eng_clean_02",
+    "filename": "eng_clean_02.png",
+    "language": "english",
+    "condition": "clean",
+    "expected_full_name": "Jessica Morgan",
+    "expected_student_number": "20231940",
+    "is_negative": false,
+    "notes": "English fictional card (clean)"
+  },
+  {
+    "sample_id": "eng_clean_03",
+    "filename": "eng_clean_03.png",
+    "language": "english",
+    "condition": "clean",
+    "expected_full_name": "Marcus Vance",
+    "expected_student_number": "20228301",
+    "is_negative": false,
+    "notes": "English fictional card (clean)"
+  },
+  {
+    "sample_id": "eng_clean_04",
+    "filename": "eng_clean_04.png",
+    "language": "english",
+    "condition": "clean",
+    "expected_full_name": "Olivia Bennett",
+    "expected_student_number": "20250019",
+    "is_negative": false,
+    "notes": "English fictional card (clean)"
+  },
+  {
+    "sample_id": "eng_perspective_05",
+    "filename": "eng_perspective_05.png",
+    "language": "english",
+    "condition": "perspective",
+    "expected_full_name": "Ethan Hayes",
+    "expected_student_number": "20241102",
+    "is_negative": false,
+    "notes": "English fictional card (perspective)"
+  },
+  {
+    "sample_id": "eng_perspective_06",
+    "filename": "eng_perspective_06.png",
+    "language": "english",
+    "condition": "perspective",
+    "expected_full_name": "Sophia Turner",
+    "expected_student_number": "20230554",
+    "is_negative": false,
+    "notes": "English fictional card (perspective)"
+  },
+  {
+    "sample_id": "eng_perspective_07",
+    "filename": "eng_perspective_07.png",
+    "language": "english",
+    "condition": "perspective",
+    "expected_full_name": "Benjamin Scott",
+    "expected_student_number": "20227189",
+    "is_negative": false,
+    "notes": "English fictional card (perspective)"
+  },
+  {
+    "sample_id": "eng_perspective_08",
+    "filename": "eng_perspective_08.png",
+    "language": "english",
+    "condition": "perspective",
+    "expected_full_name": "Chloe Davis",
+    "expected_student_number": "20250912",
+    "is_negative": false,
+    "notes": "English fictional card (perspective)"
+  },
+  {
+    "sample_id": "eng_degraded_09",
+    "filename": "eng_degraded_09.png",
+    "language": "english",
+    "condition": "degraded",
+    "expected_full_name": "Lucas Wright",
+    "expected_student_number": "20241830",
+    "is_negative": false,
+    "notes": "English fictional card (degraded)"
+  },
+  {
+    "sample_id": "eng_degraded_10",
+    "filename": "eng_degraded_10.png",
+    "language": "english",
+    "condition": "degraded",
+    "expected_full_name": "Emily Watson",
+    "expected_student_number": "20231477",
+    "is_negative": false,
+    "notes": "English fictional card (degraded)"
+  },
+  {
+    "sample_id": "eng_degraded_11",
+    "filename": "eng_degraded_11.png",
+    "language": "english",
+    "condition": "degraded",
+    "expected_full_name": "Daniel Foster",
+    "expected_student_number": "20229045",
+    "is_negative": false,
+    "notes": "English fictional card (degraded)"
+  },
+  {
+    "sample_id": "eng_degraded_12",
+    "filename": "eng_degraded_12.png",
+    "language": "english",
+    "condition": "degraded",
+    "expected_full_name": "Natalie Reed",
+    "expected_student_number": "20250321",
+    "is_negative": false,
+    "notes": "English fictional card (degraded)"
+  },
+  {
+    "sample_id": "ara_clean_01",
+    "filename": "ara_clean_01.png",
+    "language": "arabic",
+    "condition": "clean",
+    "expected_full_name": "أحمد محمود علي",
+    "expected_student_number": "20242201",
+    "is_negative": false,
+    "notes": "Arabic fictional card (clean)"
+  },
+  {
+    "sample_id": "ara_clean_02",
+    "filename": "ara_clean_02.png",
+    "language": "arabic",
+    "condition": "clean",
+    "expected_full_name": "سارة محمد إبراهيم",
+    "expected_student_number": "20233119",
+    "is_negative": false,
+    "notes": "Arabic fictional card (clean)"
+  },
+  {
+    "sample_id": "ara_clean_03",
+    "filename": "ara_clean_03.png",
+    "language": "arabic",
+    "condition": "clean",
+    "expected_full_name": "عمر خالد الشافعي",
+    "expected_student_number": "20226450",
+    "is_negative": false,
+    "notes": "Arabic fictional card (clean)"
+  },
+  {
+    "sample_id": "ara_clean_04",
+    "filename": "ara_clean_04.png",
+    "language": "arabic",
+    "condition": "clean",
+    "expected_full_name": "مريم يوسف رضوان",
+    "expected_student_number": "20251788",
+    "is_negative": false,
+    "notes": "Arabic fictional card (clean)"
+  },
+  {
+    "sample_id": "ara_perspective_05",
+    "filename": "ara_perspective_05.png",
+    "language": "arabic",
+    "condition": "perspective",
+    "expected_full_name": "كريم عبد الله حسن",
+    "expected_student_number": "20240899",
+    "is_negative": false,
+    "notes": "Arabic fictional card (perspective)"
+  },
+  {
+    "sample_id": "ara_perspective_06",
+    "filename": "ara_perspective_06.png",
+    "language": "arabic",
+    "condition": "perspective",
+    "expected_full_name": "نور الهدى طارق",
+    "expected_student_number": "20234102",
+    "is_negative": false,
+    "notes": "Arabic fictional card (perspective)"
+  },
+  {
+    "sample_id": "ara_perspective_07",
+    "filename": "ara_perspective_07.png",
+    "language": "arabic",
+    "condition": "perspective",
+    "expected_full_name": "مصطفى كمال الدين",
+    "expected_student_number": "20227763",
+    "is_negative": false,
+    "notes": "Arabic fictional card (perspective)"
+  },
+  {
+    "sample_id": "ara_perspective_08",
+    "filename": "ara_perspective_08.png",
+    "language": "arabic",
+    "condition": "perspective",
+    "expected_full_name": "فاطمة حسن خليل",
+    "expected_student_number": "20250441",
+    "is_negative": false,
+    "notes": "Arabic fictional card (perspective)"
+  },
+  {
+    "sample_id": "ara_degraded_09",
+    "filename": "ara_degraded_09.png",
+    "language": "arabic",
+    "condition": "degraded",
+    "expected_full_name": "يحيى سعيد منصور",
+    "expected_student_number": "20241512",
+    "is_negative": false,
+    "notes": "Arabic fictional card (degraded)"
+  },
+  {
+    "sample_id": "ara_degraded_10",
+    "filename": "ara_degraded_10.png",
+    "language": "arabic",
+    "condition": "degraded",
+    "expected_full_name": "آية أحمد عثمان",
+    "expected_student_number": "20232980",
+    "is_negative": false,
+    "notes": "Arabic fictional card (degraded)"
+  },
+  {
+    "sample_id": "ara_degraded_11",
+    "filename": "ara_degraded_11.png",
+    "language": "arabic",
+    "condition": "degraded",
+    "expected_full_name": "زياد شريف إسماعيل",
+    "expected_student_number": "20228114",
+    "is_negative": false,
+    "notes": "Arabic fictional card (degraded)"
+  },
+  {
+    "sample_id": "ara_degraded_12",
+    "filename": "ara_degraded_12.png",
+    "language": "arabic",
+    "condition": "degraded",
+    "expected_full_name": "هدى عبد الرحمن سالم",
+    "expected_student_number": "20251203",
+    "is_negative": false,
+    "notes": "Arabic fictional card (degraded)"
+  },
+  {
+    "sample_id": "mix_clean_01",
+    "filename": "mix_clean_01.png",
+    "language": "mixed",
+    "condition": "clean",
+    "expected_full_name": "Tarek Mansour",
+    "expected_student_number": "20243015",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (clean)"
+  },
+  {
+    "sample_id": "mix_clean_02",
+    "filename": "mix_clean_02.png",
+    "language": "mixed",
+    "condition": "clean",
+    "expected_full_name": "Dina El-Sayed",
+    "expected_student_number": "20234509",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (clean)"
+  },
+  {
+    "sample_id": "mix_clean_03",
+    "filename": "mix_clean_03.png",
+    "language": "mixed",
+    "condition": "clean",
+    "expected_full_name": "Amr Adel Mostafa",
+    "expected_student_number": "20229871",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (clean)"
+  },
+  {
+    "sample_id": "mix_clean_04",
+    "filename": "mix_clean_04.png",
+    "language": "mixed",
+    "condition": "clean",
+    "expected_full_name": "Salma Nabil Fawzy",
+    "expected_student_number": "20252104",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (clean)"
+  },
+  {
+    "sample_id": "mix_perspective_05",
+    "filename": "mix_perspective_05.png",
+    "language": "mixed",
+    "condition": "perspective",
+    "expected_full_name": "Hany Gamal Eldin",
+    "expected_student_number": "20241920",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (perspective)"
+  },
+  {
+    "sample_id": "mix_perspective_06",
+    "filename": "mix_perspective_06.png",
+    "language": "mixed",
+    "condition": "perspective",
+    "expected_full_name": "Reem Khaled Maher",
+    "expected_student_number": "20235611",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (perspective)"
+  },
+  {
+    "sample_id": "mix_perspective_07",
+    "filename": "mix_perspective_07.png",
+    "language": "mixed",
+    "condition": "perspective",
+    "expected_full_name": "Sherif Anwar Zaki",
+    "expected_student_number": "20228902",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (perspective)"
+  },
+  {
+    "sample_id": "mix_perspective_08",
+    "filename": "mix_perspective_08.png",
+    "language": "mixed",
+    "condition": "perspective",
+    "expected_full_name": "Yasmin Samir Badawi",
+    "expected_student_number": "20251640",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (perspective)"
+  },
+  {
+    "sample_id": "mix_degraded_09",
+    "filename": "mix_degraded_09.png",
+    "language": "mixed",
+    "condition": "degraded",
+    "expected_full_name": "Mohamed Fathy Soliman",
+    "expected_student_number": "20242750",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (degraded)"
+  },
+  {
+    "sample_id": "mix_degraded_10",
+    "filename": "mix_degraded_10.png",
+    "language": "mixed",
+    "condition": "degraded",
+    "expected_full_name": "Laila Essam Fouad",
+    "expected_student_number": "20236021",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (degraded)"
+  },
+  {
+    "sample_id": "mix_degraded_11",
+    "filename": "mix_degraded_11.png",
+    "language": "mixed",
+    "condition": "degraded",
+    "expected_full_name": "Wael Ahmed Gaber",
+    "expected_student_number": "20229415",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (degraded)"
+  },
+  {
+    "sample_id": "mix_degraded_12",
+    "filename": "mix_degraded_12.png",
+    "language": "mixed",
+    "condition": "degraded",
+    "expected_full_name": "Nada Taha Metwally",
+    "expected_student_number": "20252399",
+    "is_negative": false,
+    "notes": "Mixed/bilingual card (degraded)"
+  },
+  {
+    "sample_id": "neg_01_no_id",
+    "filename": "neg_01_no_id.png",
+    "language": "english",
+    "condition": "clean",
+    "expected_full_name": "Victoria Hughes",
+    "expected_student_number": null,
+    "is_negative": true,
+    "notes": "Valid name but student ID omitted entirely; parser should return student_number=None"
+  },
+  {
+    "sample_id": "neg_02_conflicting_ids",
+    "filename": "neg_02_conflicting_ids.png",
+    "language": "english",
+    "condition": "clean",
+    "expected_full_name": "Jonathan Brooks",
+    "expected_student_number": null,
+    "is_negative": true,
+    "notes": "Two conflicting 8-digit numbers without ID label; parser should abstain with is_ambiguous=True"
+  },
+  {
+    "sample_id": "neg_03_visitor_badge",
+    "filename": "neg_03_visitor_badge.png",
+    "language": "arabic",
+    "condition": "clean",
+    "expected_full_name": "حازم شريف زكي",
+    "expected_student_number": null,
+    "is_negative": true,
+    "notes": "Arabic visitor badge without university student matriculation number; student_number=None"
+  },
+  {
+    "sample_id": "neg_04_blank_noise",
+    "filename": "neg_04_blank_noise.png",
+    "language": "mixed",
+    "condition": "degraded",
+    "expected_full_name": null,
+    "expected_student_number": null,
+    "is_negative": true,
+    "notes": "Background card texture with no student fields; parser should return None for all fields"
+  }
+]
