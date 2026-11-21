@@ -4,6 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -12,7 +13,9 @@ from app.auth import (
     CurrentUser,
     require_system_roles,
     require_team_leader,
+    stream_avatar,
 )
+from app.config import Settings
 from app.database import get_db_session
 from app.models import SupervisorAssignment, Team, TeamMembership, User
 from app.schemas import (
@@ -20,6 +23,7 @@ from app.schemas import (
     SupervisorAssignmentResponse,
     TeamCreateRequest,
     TeamMemberAddRequest,
+    TeamMemberProfileResponse,
     TeamMemberResponse,
     TeamResponse,
 )
@@ -45,6 +49,7 @@ def _serialize_teams(teams: list[Team], session: Session) -> list[TeamResponse]:
             TeamMembership.user_id,
             User.display_name,
             TeamMembership.role,
+            User.avatar_storage_key,
         )
         .join(User, User.id == TeamMembership.user_id)
         .where(TeamMembership.team_id.in_(team_ids))
@@ -63,12 +68,13 @@ def _serialize_teams(teams: list[Team], session: Session) -> list[TeamResponse]:
     members_by_team: dict[UUID, list[TeamMemberResponse]] = {
         team_id: [] for team_id in team_ids
     }
-    for team_id, user_id, display_name, role in member_rows:
+    for team_id, user_id, display_name, role, avatar_storage_key in member_rows:
         members_by_team[team_id].append(
             TeamMemberResponse(
                 user_id=user_id,
                 display_name=display_name,
                 role=role,
+                has_avatar=bool(avatar_storage_key),
             )
         )
 
@@ -220,6 +226,7 @@ def add_team_member(
         user_id=user.id,
         display_name=user.display_name,
         role="member",
+        has_avatar=user.has_avatar,
     )
 
 
@@ -266,3 +273,96 @@ def assign_or_reassign_supervisor(
         ) from None
 
     return assignment
+
+
+@router.get(
+    "/{team_id}/members/{user_id}/profile",
+    response_model=TeamMemberProfileResponse,
+)
+def read_team_member_profile(
+    team_id: UUID,
+    user_id: UUID,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> TeamMemberProfileResponse:
+    """Read a teammate's non-sensitive profile within an authorized team space."""
+    get_visible_team(team_id, current_user, session)
+
+    membership = session.scalar(
+        select(TeamMembership).where(
+            TeamMembership.team_id == team_id,
+            TeamMembership.user_id == user_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Team member not found",
+        )
+
+    user = session.get(User, user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Team member not found",
+        )
+
+    return TeamMemberProfileResponse(
+        id=user.id,
+        display_name=user.display_name,
+        team_role=membership.role,
+        faculty=user.faculty,
+        department=user.department,
+        academic_level=user.academic_level,
+        bio=user.bio,
+        has_avatar=user.has_avatar,
+    )
+
+
+@router.get(
+    "/{team_id}/members/{user_id}/avatar",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "image/png": {},
+                "image/jpeg": {},
+            },
+            "description": "The team member's profile avatar.",
+        },
+        404: {"description": "Avatar not found"},
+        503: {"description": "Avatar file is unavailable"},
+    },
+)
+def read_team_member_avatar(
+    team_id: UUID,
+    user_id: UUID,
+    current_user: CurrentUser,
+    session: DbSession,
+) -> StreamingResponse:
+    """Stream an authorized team member's profile avatar."""
+    get_visible_team(team_id, current_user, session)
+
+    membership = session.scalar(
+        select(TeamMembership).where(
+            TeamMembership.team_id == team_id,
+            TeamMembership.user_id == user_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Team member not found",
+        )
+
+    user = session.get(User, user_id)
+    if user is None or not user.is_active or not user.avatar_storage_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Avatar not found",
+        )
+
+    return stream_avatar(
+        user.avatar_storage_key,
+        Settings.from_environment().private_upload_dir,
+    )

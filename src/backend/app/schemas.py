@@ -1,5 +1,6 @@
 """Request and response schemas for authentication and team APIs."""
 
+import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal, Union
 from uuid import UUID
@@ -61,6 +62,128 @@ class PublicUser(BaseModel):
     system_role: str
 
 
+class UserProfileResponse(PublicUser):
+    """User profile representation including nonsecret academic attributes."""
+
+    student_number: str | None = None
+    faculty: str | None = None
+    department: str | None = None
+    academic_level: str | None = None
+    bio: str | None = None
+    has_avatar: bool = False
+
+
+class UserProfileUpdateRequest(BaseModel):
+    """Client fields accepted when updating self-service profile details."""
+
+    model_config = {"extra": "forbid"}
+
+    display_name: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=160),
+        ]
+        | None
+    ) = None
+    student_number: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=40),
+        ]
+        | None
+    ) = None
+    faculty: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+        ]
+        | None
+    ) = None
+    department: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
+        ]
+        | None
+    ) = None
+    academic_level: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=40),
+        ]
+        | None
+    ) = None
+    bio: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=0, max_length=500),
+        ]
+        | None
+    ) = None
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            raise ValueError("display_name cannot be null")
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("display_name cannot be empty")
+        return trimmed
+
+    @field_validator("student_number")
+    @classmethod
+    def validate_student_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9_/-]+", trimmed):
+            raise ValueError(
+                "student_number may only contain letters, digits, "
+                "and separators (-, _, /)"
+            )
+        return trimmed
+
+    @field_validator("faculty", "department")
+    @classmethod
+    def validate_faculty_department(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed if trimmed else None
+
+    @field_validator("academic_level")
+    @classmethod
+    def validate_academic_level(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed if trimmed else None
+
+    @field_validator("bio")
+    @classmethod
+    def validate_bio(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed if trimmed else None
+
+
+class TeamMemberProfileResponse(BaseModel):
+    """Limited member profile visible within an authorized team space."""
+
+    id: UUID
+    display_name: str
+    team_role: Literal["member", "leader"]
+    faculty: str | None = None
+    department: str | None = None
+    academic_level: str | None = None
+    bio: str | None = None
+    has_avatar: bool = False
+
+
 class AccessTokenResponse(BaseModel):
     """Short-lived bearer access token returned after successful login."""
 
@@ -99,6 +222,7 @@ class TeamMemberResponse(BaseModel):
     user_id: UUID
     display_name: str
     role: Literal["member", "leader"]
+    has_avatar: bool = False
 
 
 class TeamResponse(BaseModel):

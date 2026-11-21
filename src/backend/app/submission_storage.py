@@ -16,6 +16,8 @@ from uuid import uuid4
 from zipfile import BadZipFile, LargeZipFile, ZipFile
 
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024
+MAX_AVATAR_SIZE_BYTES = 2 * 1024 * 1024
+AVATAR_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg"})
 MAX_ARCHIVE_ENTRIES = 1_000
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 _CHUNK_SIZE = 1024 * 1024
@@ -188,7 +190,11 @@ def validate_submission_url(value: str) -> str:
     return urlunsplit(("https", authority, parts.path, parts.query, ""))
 
 
-def validate_upload_filename(filename: str | None) -> tuple[str, str]:
+def validate_upload_filename(
+    filename: str | None,
+    *,
+    allowed_extensions: set[str] | frozenset[str] | None = None,
+) -> tuple[str, str]:
     """Return a safe basename and supported extension for response metadata."""
     if (
         not filename
@@ -202,7 +208,12 @@ def validate_upload_filename(filename: str | None) -> tuple[str, str]:
 
     basename, separator, suffix = filename.rpartition(".")
     extension = f".{suffix.casefold()}" if separator else ""
-    if not basename or "." in basename or extension not in _SUPPORTED_MEDIA_TYPES:
+    supported = (
+        allowed_extensions
+        if allowed_extensions is not None
+        else set(_SUPPORTED_MEDIA_TYPES)
+    )
+    if not basename or "." in basename or extension not in supported:
         raise FileValidationError("The uploaded file type is not supported")
     return filename, extension
 
@@ -240,9 +251,13 @@ def stage_upload(
     filename: str | None,
     content_type: str | None,
     configured_dir: str | None,
+    max_file_size_bytes: int = MAX_FILE_SIZE_BYTES,
+    allowed_extensions: set[str] | frozenset[str] | None = None,
 ) -> StagedUpload:
     """Bounded-stream, validate, and stage one untrusted file in private storage."""
-    safe_filename, extension = validate_upload_filename(filename)
+    safe_filename, extension = validate_upload_filename(
+        filename, allowed_extensions=allowed_extensions
+    )
     media_type = _SUPPORTED_MEDIA_TYPES[extension]
     declared_type = (content_type or "").split(";", 1)[0].strip().casefold()
     if declared_type not in {"", "application/octet-stream", *media_type}:
@@ -265,9 +280,11 @@ def stage_upload(
                 if not chunk:
                     break
                 size += len(chunk)
-                if size > MAX_FILE_SIZE_BYTES:
+                if size > max_file_size_bytes:
+                    limit_mb = max_file_size_bytes // (1024 * 1024)
                     raise FileValidationError(
-                        "The uploaded file exceeds the 20 MiB limit", status_code=413
+                        f"The uploaded file exceeds the {limit_mb} MiB limit",
+                        status_code=413,
                     )
                 destination.write(chunk)
             destination.flush()
@@ -297,6 +314,19 @@ def stage_upload(
     except OSError as error:
         _unlink_quietly(temp_path)
         raise PrivateStorageUnavailable from error
+
+
+def delete_stored_file(configured_dir: str | None, storage_key: str | None) -> None:
+    """Remove an opaque stored key from private storage quietly."""
+    if not storage_key or not re.fullmatch(r"[0-9a-f]{32}", storage_key):
+        return
+    try:
+        root = private_storage_root(configured_dir, create=False)
+        path = _storage_path(root, storage_key)
+        _reject_reparse_points(path)
+        path.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def open_stored_file(configured_dir: str | None, storage_key: str) -> BinaryIO:

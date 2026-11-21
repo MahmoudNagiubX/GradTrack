@@ -45,6 +45,14 @@ class User(Base):
             "system_role IN ('student', 'supervisor', 'coordinator')",
             name="ck_users_system_role",
         ),
+        CheckConstraint(
+            "student_number IS NULL OR length(btrim(student_number)) > 0",
+            name="ck_users_student_number_nonempty",
+        ),
+        CheckConstraint(
+            "avatar_storage_key IS NULL OR length(avatar_storage_key) = 32",
+            name="ck_users_avatar_storage_key_len",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -59,6 +67,12 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )
+    student_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    faculty: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    academic_level: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    avatar_storage_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -68,6 +82,11 @@ class User(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    @property
+    def has_avatar(self) -> bool:
+        """Indicate whether the user has a stored profile avatar."""
+        return bool(self.avatar_storage_key)
 
 
 class Team(Base):
