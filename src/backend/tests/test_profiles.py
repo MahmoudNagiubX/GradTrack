@@ -48,6 +48,10 @@ TINY_JPEG = (
 def private_upload_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "private_uploads"
     root.mkdir(parents=True, exist_ok=True)
+    try:
+        root.chmod(0o700)
+    except OSError:
+        pass
     monkeypatch.setenv("GRADTRACK_PRIVATE_UPLOAD_DIR", str(root))
     return root
 
