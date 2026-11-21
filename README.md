@@ -83,7 +83,11 @@ OpenAPI documentation is available at <http://127.0.0.1:8000/docs>. Authenticati
 |---|---|---|
 | `POST /auth/register` | Register a student account with normalized email, validated display name, and password | Public account fields; the server always assigns the `student` role |
 | `POST /auth/login` | Verify email and password | A 15-minute `Bearer` access token |
-| `GET /auth/me` | Read the authenticated account | ID, email, display name, and system role |
+| `GET /auth/me` | Read the authenticated account | ID, email, display name, system role, and optional academic/profile details (`student_number`, `faculty`, `department`, `academic_level`, `bio`, `has_avatar`) |
+| `PATCH /auth/me` | Update permitted profile fields for the authenticated account | Updated profile representation; `display_name`, `student_number`, `faculty`, `department`, `academic_level`, `bio` can be edited; system role and auth properties are strictly forbidden |
+| `POST /auth/me/avatar` | Upload or replace user profile photo | Validates PNG/JPEG format (up to 2 MiB), stages privately, and updates `has_avatar` |
+| `DELETE /auth/me/avatar` | Remove user profile photo | Clears avatar reference and safely removes the stored file (idempotent) |
+| `GET /auth/me/avatar` | Stream authenticated user's own profile photo | Image stream (`image/png` or `image/jpeg`) with nosniff and private cache headers |
 
 Send the login token in `Authorization: Bearer <access_token>` when calling `/auth/me`. Password hashes and plaintext passwords are never included in response schemas. Unknown accounts and wrong passwords use the same generic login error. A disabled account cannot log in or use a previously issued token. The shared auth module also provides server-side system-role and team-membership/leader dependencies for protected routes; no public supervisor/coordinator provisioning or role-elevation endpoint exists. Privileged-role accounts are created only by synthetic database fixtures in tests.
 
@@ -100,6 +104,8 @@ Team data is restricted server-side. `GET /teams` lists only a student's member 
 | `GET /teams/{team_id}` | Member, currently assigned supervisor, or coordinator | Reads one authorized team and its member display names/roles. |
 | `POST /teams/{team_id}/members` | Student who is that team's leader | Adds an existing active student as a regular member; duplicate membership returns `409`. |
 | `PUT /teams/{team_id}/supervisor` | Authenticated Programme Coordinator | Assigns or reassigns the team's current supervisor. The selected account must be an active supervisor. |
+| `GET /teams/{team_id}/members/{user_id}/profile` | Member, currently assigned supervisor, or coordinator | Reads limited display profile of a team member (name, team role, academic attributes, avatar flag; email and student number suppressed). |
+| `GET /teams/{team_id}/members/{user_id}/avatar` | Member, currently assigned supervisor, or coordinator | Streams an authorized team member's avatar photo (`image/png` or `image/jpeg`). |
 
 The current schema has no `Programme` entity or team-to-programme relationship. For the single-programme pilot, coordinator assignment and team visibility are temporarily global across teams. Add programme-specific coordinator scoping when the schema supports multiple programmes. Students, team leaders, and supervisors cannot assign or change supervisor assignments.
 
