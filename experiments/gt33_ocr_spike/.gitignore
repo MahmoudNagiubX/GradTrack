@@ -1,0 +1,10 @@
+# GT-33 OCR Feasibility Spike artifacts
+.venv/
+__pycache__/
+*.pyc
+generated_cards/
+benchmark_results/
+*.png
+*.jpg
+*.jpeg
+results_*.json
