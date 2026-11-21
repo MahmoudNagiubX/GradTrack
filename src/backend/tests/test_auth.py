@@ -212,8 +212,21 @@ def test_login_returns_bearer_token_and_me_exposes_only_public_fields(
     assert login.json()["token_type"] == "Bearer"
     assert login.json()["expires_in"] == 900
     assert me.status_code == 200
-    assert set(me.json()) == {"id", "email", "display_name", "system_role"}
+    assert set(me.json()) == {
+        "id",
+        "email",
+        "display_name",
+        "system_role",
+        "student_number",
+        "faculty",
+        "department",
+        "academic_level",
+        "bio",
+        "has_avatar",
+    }
     assert me.json()["system_role"] == "student"
+    assert me.json()["student_number"] is None
+    assert me.json()["has_avatar"] is False
     assert "password" not in me.json()
     assert "password_hash" not in me.json()
 

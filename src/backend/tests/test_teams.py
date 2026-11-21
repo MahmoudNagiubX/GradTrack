@@ -73,6 +73,7 @@ def test_student_creates_team_and_becomes_its_first_leader(
             "user_id": str(student.id),
             "display_name": student.display_name,
             "role": "leader",
+            "has_avatar": False,
         }
     ]
     team_id = UUID(body["id"])
@@ -172,6 +173,7 @@ def test_team_leader_adds_existing_student_as_member_and_duplicate_is_rejected(
         "user_id": str(new_member.id),
         "display_name": new_member.display_name,
         "role": "member",
+        "has_avatar": False,
     }
     assert duplicate.status_code == 409
     persisted = db_session.scalar(

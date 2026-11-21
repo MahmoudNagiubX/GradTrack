@@ -766,3 +766,112 @@ def test_phase7b_notification_read_receipts_migration_and_downgrade(
     finally:
         with postgres_engine.begin() as connection:
             connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+def test_phase8_user_profiles_migration_and_downgrade(
+    postgres_engine: Engine,
+) -> None:
+    schema = f"user_profiles_migration_{uuid4().hex}"
+    with postgres_engine.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+
+    try:
+        with postgres_engine.connect() as connection:
+            transaction = connection.begin()
+            connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
+            config = Config("alembic.ini")
+            config.attributes["connection"] = connection
+
+            # 1. Upgrade to gt30_0007 first
+            command.upgrade(config, "gt30_0007")
+            columns_before = {
+                c["name"]
+                for c in inspect(connection).get_columns("users", schema=schema)
+            }
+            assert "student_number" not in columns_before
+            assert "avatar_storage_key" not in columns_before
+
+            # Insert an active student user
+            user_id = uuid4()
+            connection.execute(
+                text(
+                    "INSERT INTO users (id, email, password_hash, display_name, "
+                    "system_role, is_active, created_at, updated_at) VALUES ("
+                    ":id, 'student-prof@example.test', 'hash', 'Student', "
+                    "'student', true, now(), now())"
+                ),
+                {"id": user_id},
+            )
+
+            # 2. Upgrade to head (gt32_0008)
+            command.upgrade(config, "head")
+            columns_after = {
+                c["name"]
+                for c in inspect(connection).get_columns("users", schema=schema)
+            }
+            expected_new_cols = {
+                "student_number",
+                "faculty",
+                "department",
+                "academic_level",
+                "bio",
+                "avatar_storage_key",
+            }
+            assert expected_new_cols <= columns_after
+
+            # Update the user with new profile fields
+            storage_key = "a" * 32
+            connection.execute(
+                text(
+                    "UPDATE users SET student_number = '2024-CS-001', "
+                    "faculty = 'Engineering', department = 'Computer Science', "
+                    "academic_level = 'Senior', bio = 'Graduation project researcher', "
+                    "avatar_storage_key = :key WHERE id = :id"
+                ),
+                {"id": user_id, "key": storage_key},
+            )
+
+            row = connection.execute(
+                text(
+                    "SELECT student_number, faculty, department, "
+                    "academic_level, bio, avatar_storage_key "
+                    "FROM users WHERE id = :id"
+                ),
+                {"id": user_id},
+            ).one()
+            assert row[0] == "2024-CS-001"
+            assert row[1] == "Engineering"
+            assert row[2] == "Computer Science"
+            assert row[3] == "Senior"
+            assert row[4] == "Graduation project researcher"
+            assert row[5] == storage_key
+
+            # 3. Downgrade to gt30_0007
+            command.downgrade(config, "gt30_0007")
+            columns_downgraded = {
+                c["name"]
+                for c in inspect(connection).get_columns("users", schema=schema)
+            }
+            assert not columns_downgraded.intersection(expected_new_cols)
+
+            # Prior user data preserved
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM users WHERE id = :id"),
+                    {"id": user_id},
+                )
+                == 1
+            )
+
+            # 4. Re-upgrade to head
+            command.upgrade(config, "head")
+            columns_reupgraded = {
+                c["name"]
+                for c in inspect(connection).get_columns("users", schema=schema)
+            }
+            assert expected_new_cols <= columns_reupgraded
+
+            transaction.rollback()
+    finally:
+        with postgres_engine.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
